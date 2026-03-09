@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/Rsych/zynqel-core/internal/server"
+	"github.com/Rsych/zynqel-core/internal/session"
 )
 
 func main() {
@@ -15,7 +16,8 @@ func main() {
 		port = "8080"
 	}
 
-	srv := server.New()
+	sm := session.NewManager()
+	srv := server.New(sm)
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("zynqel-core starting on %s", addr)

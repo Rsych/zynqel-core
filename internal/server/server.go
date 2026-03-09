@@ -1,18 +1,24 @@
 package server
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
+
+	"github.com/Rsych/zynqel-core/internal/session"
 )
 
 type Server struct {
-	router *http.ServeMux
+	router   *http.ServeMux
+	sessions *session.Manager
 }
 
-func New() *Server {
+// New takes a session.Manager as a dependency.
+// This is dependency injection — the server doesn't create its
+// own manager, it receives one. Makes testing easy: pass a
+// real manager in prod, or a fresh one in each test.
+func New(sm *session.Manager) *Server {
 	s := &Server{
-		router: http.NewServeMux(),
+		router:   http.NewServeMux(),
+		sessions: sm,
 	}
 	s.routes()
 	return s
@@ -20,6 +26,10 @@ func New() *Server {
 
 func (s *Server) routes() {
 	s.router.HandleFunc("GET /health", s.handleHealth)
+	s.router.HandleFunc("POST /sessions", s.handleCreateSession)
+	s.router.HandleFunc("GET /sessions", s.handleListSessions)
+	s.router.HandleFunc("GET /sessions/{id}", s.handleGetSession)
+	s.router.HandleFunc("DELETE /sessions/{id}", s.handleDeleteSession)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -27,13 +37,5 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	resp := map[string]string{
-		"status": "healthy",
-	}
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("error encoding health response: %v", err)
-	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
 }
