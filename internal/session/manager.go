@@ -36,6 +36,10 @@ func (m *Manager) Create(spec SessionSpec) (*Session, error) {
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
+	if spec.Env == nil {
+		spec.Env = make(map[string]string)
+	}
+
 	s := &Session{
 		ID:        id,
 		Spec:      spec,
@@ -76,22 +80,16 @@ func (m *Manager) List() []*Session {
 }
 
 // Delete removes a session from the registry.
-// Later this will also stop the container — for now it just
-// marks it stopped and removes it from the map.
+// Later this will also stop the container before removing.
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	s, ok := m.sessions[id]
-	if !ok {
+	if _, ok := m.sessions[id]; !ok {
 		return fmt.Errorf("session not found: %s", id)
 	}
 
-	now := time.Now()
-	s.Status = StatusStopped
-	s.StoppedAt = &now
 	delete(m.sessions, id)
-
 	return nil
 }
 
