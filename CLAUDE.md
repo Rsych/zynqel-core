@@ -30,13 +30,37 @@ go vet ./...                            # Static analysis
 4. No Kubernetes
 5. Core is the data plane — no user management, no multi-tenancy
 
-## Git
+## Git & GitHub Flow
 
 - Branch format: `<type>/ZYNQ-<number>_<slug>` (e.g., `feature/ZYNQ-01_http_server`)
 - Types: `feature`, `fix`, `refactor`, `bugfix`
 - Commit format: `<type>: <short description>` (e.g., `feat: add health endpoint`)
 - Commit types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 - Base branch: `master`
+
+### GitHub Flow Script — ALWAYS use this
+
+**Starting work on an issue:**
+```bash
+scripts/github-flow.sh start <issue-number> <feature|fix|refactor|bugfix>
+# Example: scripts/github-flow.sh start 5 feature
+# Creates branch: feature/ZYNQ-05_session_spec_session_struct_in_memory_registry_crud_api
+# Sets project status to "In Progress"
+```
+
+**Opening a PR:**
+```bash
+scripts/github-flow.sh pr <issue-number> [--draft]
+# Example: scripts/github-flow.sh pr 5
+# Pushes branch, creates PR linked to issue, updates project status
+```
+
+**Rules:**
+- ALWAYS use `scripts/github-flow.sh` to start branches and open PRs — never manually
+- The script enforces branch naming, links issues, and updates the GitHub Project board
+- Working tree must be clean before `start` (commit or stash first)
+- Requires: `gh`, `git`, `jq`
+- Override project number: `PROJECT_NUMBER=5 scripts/github-flow.sh start 5 feature`
 
 ## Key Interfaces
 
