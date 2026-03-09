@@ -68,9 +68,9 @@ func (d *DockerSandbox) Create(spec Spec) (string, error) {
 		Image:      spec.Image,
 		Env:        env,
 		Labels:     spec.Labels,
-		Tty:        true,            // Allocate a pseudo-TTY to keep the container alive
-		OpenStdin:  true,            // Keep stdin open for interactive use
-		Cmd:        []string{"/bin/sh"}, // Default shell; AgentAdapter will override (ZYNQ-08)
+		Tty:       true,              // Required for interactive CLI agents (PTY streaming)
+		OpenStdin: true,              // Keep stdin open for agent input
+		Cmd:       []string{"/bin/sh"}, // Keep-alive default; AgentAdapter overrides this (ZYNQ-08)
 	}
 
 	// HostConfig is where resource limits go (ZYNQ-04).

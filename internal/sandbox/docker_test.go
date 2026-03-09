@@ -128,7 +128,8 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 }
 
 func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
-	_ = mustDockerClient(t)
+	cli := mustDockerClient(t)
+	defer cli.Close()
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
@@ -160,10 +161,7 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	t.Log("force-removed running container")
 
 	// Verify gone
-	ctx := context.Background()
-	cli, _ := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	defer cli.Close()
-	_, err = cli.ContainerInspect(ctx, containerID)
+	_, err = cli.ContainerInspect(context.Background(), containerID)
 	if err == nil {
 		t.Fatal("container should not exist after force Remove")
 	}
