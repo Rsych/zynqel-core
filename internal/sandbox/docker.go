@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -31,12 +32,14 @@ func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
 		return fmt.Errorf("inspect image %s: %w", img, err)
 	}
 
+	log.Printf("pulling image %s ...", img)
 	reader, err := d.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {
 		return fmt.Errorf("pull image %s: %w", img, err)
 	}
 	defer reader.Close()
 	_, _ = io.Copy(io.Discard, reader)
+	log.Printf("pulled image %s", img)
 	return nil
 }
 
