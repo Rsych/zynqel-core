@@ -38,6 +38,9 @@ func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
 	if err == nil {
 		return nil // already have it
 	}
+	if !client.IsErrNotFound(err) {
+		return fmt.Errorf("inspect image %s: %w", img, err)
+	}
 
 	reader, err := d.cli.ImagePull(ctx, img, image.PullOptions{})
 	if err != nil {

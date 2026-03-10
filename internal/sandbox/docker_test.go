@@ -149,6 +149,7 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	defer func() { _ = sb.Remove(containerID) }()
 
 	if err := sb.Start(containerID); err != nil {
 		t.Fatalf("Start: %v", err)
