@@ -38,7 +38,9 @@ func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
 		return fmt.Errorf("pull image %s: %w", img, err)
 	}
 	defer reader.Close()
-	_, _ = io.Copy(io.Discard, reader)
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		return fmt.Errorf("pull image %s: %w", img, err)
+	}
 	log.Printf("pulled image %s", img)
 	return nil
 }
