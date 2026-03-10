@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -13,15 +14,12 @@ import (
 
 const defaultImage = "ubuntu:22.04"
 
-// Manager is the in-memory session registry.
-// It owns the sandbox — all container operations go through here.
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
 	sandbox  sandbox.Sandbox
 }
 
-// NewManager creates a session registry wired to a sandbox backend.
 func NewManager(sb sandbox.Sandbox) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
@@ -29,10 +27,7 @@ func NewManager(sb sandbox.Sandbox) *Manager {
 	}
 }
 
-// Create builds a new Session, provisions a container, and starts it.
-// The flow: generate ID → create container → start container → store session.
-// If any step fails, we clean up what we created.
-func (m *Manager) Create(spec SessionSpec) (*Session, error) {
+func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error) {
 	id, err := generateID()
 	if err != nil {
 		return nil, fmt.Errorf("generate session id: %w", err)
@@ -42,9 +37,6 @@ func (m *Manager) Create(spec SessionSpec) (*Session, error) {
 		spec.Env = make(map[string]string)
 	}
 
-	// Build sandbox spec from session spec.
-	// The sandbox doesn't know about agents or repos —
-	// it just needs an image, env vars, and labels.
 	sbSpec := sandbox.Spec{
 		Image: defaultImage,
 		Env:   spec.Env,
@@ -54,14 +46,13 @@ func (m *Manager) Create(spec SessionSpec) (*Session, error) {
 		},
 	}
 
-	containerID, err := m.sandbox.Create(sbSpec)
+	containerID, err := m.sandbox.Create(ctx, sbSpec)
 	if err != nil {
 		return nil, fmt.Errorf("create sandbox: %w", err)
 	}
 
-	if err := m.sandbox.Start(containerID); err != nil {
-		// Clean up the created-but-not-started container.
-		if rmErr := m.sandbox.Remove(containerID); rmErr != nil {
+	if err := m.sandbox.Start(ctx, containerID); err != nil {
+		if rmErr := m.sandbox.Remove(ctx, containerID); rmErr != nil {
 			log.Printf("failed to remove container %s after start failure: %v", containerID[:12], rmErr)
 		}
 		return nil, fmt.Errorf("start sandbox: %w", err)
@@ -82,7 +73,6 @@ func (m *Manager) Create(spec SessionSpec) (*Session, error) {
 	return s, nil
 }
 
-// Get returns a session by ID, or an error if not found.
 func (m *Manager) Get(id string) (*Session, error) {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
@@ -94,7 +84,6 @@ func (m *Manager) Get(id string) (*Session, error) {
 	return s, nil
 }
 
-// List returns all sessions.
 func (m *Manager) List() []*Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -106,8 +95,7 @@ func (m *Manager) List() []*Session {
 	return result
 }
 
-// Delete stops and removes the container, then removes the session.
-func (m *Manager) Delete(id string) error {
+func (m *Manager) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[id]
 	if !ok {
@@ -117,12 +105,10 @@ func (m *Manager) Delete(id string) error {
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
-	// Stop and remove outside the lock — these are slow I/O operations.
-	// We already removed from the map, so no other request can reference it.
-	if err := m.sandbox.Stop(s.ContainerID); err != nil {
+	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to stop container %s: %v", s.ContainerID[:12], err)
 	}
-	if err := m.sandbox.Remove(s.ContainerID); err != nil {
+	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to remove container %s: %v", s.ContainerID[:12], err)
 	}
 

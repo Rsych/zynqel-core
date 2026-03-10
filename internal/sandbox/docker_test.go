@@ -8,9 +8,6 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// These are integration tests — they require a running Docker daemon.
-// Skip gracefully if Docker isn't available.
-
 func mustDockerClient(t *testing.T) *client.Client {
 	t.Helper()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -35,7 +32,8 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	}
 	defer sb.Close()
 
-	// 1. Create
+	ctx := context.Background()
+
 	spec := Spec{
 		Image: "ubuntu:22.04",
 		Env:   map[string]string{"TEST_VAR": "hello"},
@@ -45,19 +43,14 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		},
 	}
 
-	containerID, err := sb.Create(spec)
+	containerID, err := sb.Create(ctx, spec)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	t.Logf("created container: %s", containerID[:12])
+	defer func() { _ = sb.Remove(ctx, containerID) }()
 
-	// Ensure cleanup even if test fails midway.
-	defer func() {
-		_ = sb.Remove(containerID)
-	}()
-
-	// 2. Verify container exists (created but not started)
-	ctx := context.Background()
+	// Verify container exists but not started
 	info, err := cli.ContainerInspect(ctx, containerID)
 	if err != nil {
 		t.Fatalf("container should exist after Create: %v", err)
@@ -65,8 +58,6 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	if info.State.Running {
 		t.Fatal("container should not be running before Start")
 	}
-
-	// Verify labels
 	if info.Config.Labels["zynqel.managed"] != "true" {
 		t.Error("expected zynqel.managed=true label")
 	}
@@ -74,7 +65,6 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		t.Error("expected zynqel.session-id label")
 	}
 
-	// Verify env
 	found := false
 	for _, e := range info.Config.Env {
 		if e == "TEST_VAR=hello" {
@@ -86,12 +76,10 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		t.Error("expected TEST_VAR=hello in container env")
 	}
 
-	// 3. Start
-	if err := sb.Start(containerID); err != nil {
+	// Start
+	if err := sb.Start(ctx, containerID); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Log("started container")
-
 	info, err = cli.ContainerInspect(ctx, containerID)
 	if err != nil {
 		t.Fatalf("inspect after start: %v", err)
@@ -100,12 +88,10 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		t.Fatal("container should be running after Start")
 	}
 
-	// 4. Stop
-	if err := sb.Stop(containerID); err != nil {
+	// Stop
+	if err := sb.Stop(ctx, containerID); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	t.Log("stopped container")
-
 	info, err = cli.ContainerInspect(ctx, containerID)
 	if err != nil {
 		t.Fatalf("inspect after stop: %v", err)
@@ -114,13 +100,10 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		t.Fatal("container should not be running after Stop")
 	}
 
-	// 5. Remove
-	if err := sb.Remove(containerID); err != nil {
+	// Remove
+	if err := sb.Remove(ctx, containerID); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	t.Log("removed container")
-
-	// Verify container is gone
 	_, err = cli.ContainerInspect(ctx, containerID)
 	if err == nil {
 		t.Fatal("container should not exist after Remove")
@@ -137,6 +120,8 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	}
 	defer sb.Close()
 
+	ctx := context.Background()
+
 	spec := Spec{
 		Image: "ubuntu:22.04",
 		Labels: map[string]string{
@@ -145,24 +130,21 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 		},
 	}
 
-	containerID, err := sb.Create(spec)
+	containerID, err := sb.Create(ctx, spec)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer func() { _ = sb.Remove(containerID) }()
+	defer func() { _ = sb.Remove(ctx, containerID) }()
 
-	if err := sb.Start(containerID); err != nil {
+	if err := sb.Start(ctx, containerID); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// Remove while running — Force=true should handle it
-	if err := sb.Remove(containerID); err != nil {
+	if err := sb.Remove(ctx, containerID); err != nil {
 		t.Fatalf("Remove (force): %v", err)
 	}
-	t.Log("force-removed running container")
 
-	// Verify gone
-	_, err = cli.ContainerInspect(context.Background(), containerID)
+	_, err = cli.ContainerInspect(ctx, containerID)
 	if err == nil {
 		t.Fatal("container should not exist after force Remove")
 	}
@@ -181,7 +163,7 @@ func TestDockerSandbox_CreateBadImage(t *testing.T) {
 		Image: "this-image-does-not-exist:never",
 	}
 
-	_, err = sb.Create(spec)
+	_, err = sb.Create(context.Background(), spec)
 	if err == nil {
 		t.Fatal("Create should fail with nonexistent image")
 	}

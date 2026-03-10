@@ -1,26 +1,16 @@
 package sandbox
 
+import "context"
+
 // Sandbox defines the contract for an execution backend.
-// Right now there's only DockerSandbox, but this interface
-// means we could add others (e.g., Firecracker) without
-// changing the session manager.
-//
-// Note: we define this interface in the sandbox package because
-// it's the primary abstraction here. The session manager will
-// depend on this interface, not on the concrete DockerSandbox.
+// All methods take a context.Context — this is standard Go
+// for anything that does I/O. It lets callers control
+// cancellation (e.g., server shutdown, request timeout).
 type Sandbox interface {
-	// Create provisions a new sandbox (e.g., creates a container).
-	// Returns a unique sandbox ID.
-	Create(spec Spec) (string, error)
-
-	// Start starts the sandbox (e.g., starts the container).
-	Start(id string) error
-
-	// Stop stops the sandbox gracefully.
-	Stop(id string) error
-
-	// Remove destroys the sandbox and cleans up resources.
-	Remove(id string) error
+	Create(ctx context.Context, spec Spec) (string, error)
+	Start(ctx context.Context, id string) error
+	Stop(ctx context.Context, id string) error
+	Remove(ctx context.Context, id string) error
 }
 
 // Spec describes what the sandbox should look like.
