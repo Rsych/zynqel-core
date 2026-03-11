@@ -22,7 +22,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := s.sessions.Create(spec)
+	sess, err := s.sessions.Create(r.Context(), spec)
 	if err != nil {
 		log.Printf("error creating session: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create session")
@@ -57,7 +57,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	if err := s.sessions.Delete(id); err != nil {
+	if err := s.sessions.Delete(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}

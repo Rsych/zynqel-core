@@ -28,10 +28,11 @@ type SessionSpec struct {
 // It's created from a SessionSpec and tracks everything
 // about a running (or stopped) session.
 type Session struct {
-	ID        string    `json:"id"`
-	Spec      SessionSpec `json:"spec"`
-	Status    Status    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	StoppedAt *time.Time `json:"stopped_at,omitempty"` // pointer = nullable in JSON
-	Error     string    `json:"error,omitempty"`
+	ID          string     `json:"id"`
+	Spec        SessionSpec `json:"spec"`
+	Status      Status     `json:"status"`
+	ContainerID string     `json:"container_id,omitempty"` // Docker container ID
+	CreatedAt   time.Time  `json:"created_at"`
+	StoppedAt   *time.Time `json:"stopped_at,omitempty"`
+	Error       string     `json:"error,omitempty"`
 }

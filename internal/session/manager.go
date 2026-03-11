@@ -1,36 +1,33 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"sync"
 	"time"
+
+	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
 
-// Manager is the in-memory session registry.
-// It's the single source of truth for all sessions.
-//
-// Why sync.RWMutex? HTTP handlers run concurrently (each request
-// is a goroutine). Without a mutex, two requests creating sessions
-// at the same time would corrupt the map. RWMutex lets multiple
-// readers run in parallel but blocks writers — good for read-heavy
-// workloads like listing sessions.
+const defaultImage = "ubuntu:22.04"
+
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
+	sandbox  sandbox.Sandbox
 }
 
-// NewManager creates an empty session registry.
-func NewManager() *Manager {
+func NewManager(sb sandbox.Sandbox) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
+		sandbox:  sb,
 	}
 }
 
-// Create builds a new Session from a spec and stores it.
-// Returns the created session.
-func (m *Manager) Create(spec SessionSpec) (*Session, error) {
+func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error) {
 	id, err := generateID()
 	if err != nil {
 		return nil, fmt.Errorf("generate session id: %w", err)
@@ -40,11 +37,33 @@ func (m *Manager) Create(spec SessionSpec) (*Session, error) {
 		spec.Env = make(map[string]string)
 	}
 
+	sbSpec := sandbox.Spec{
+		Image: defaultImage,
+		Env:   spec.Env,
+		Labels: map[string]string{
+			"zynqel.managed":    "true",
+			"zynqel.session-id": id,
+		},
+	}
+
+	containerID, err := m.sandbox.Create(ctx, sbSpec)
+	if err != nil {
+		return nil, fmt.Errorf("create sandbox: %w", err)
+	}
+
+	if err := m.sandbox.Start(ctx, containerID); err != nil {
+		if rmErr := m.sandbox.Remove(ctx, containerID); rmErr != nil {
+			log.Printf("failed to remove container %s after start failure: %v", containerID[:12], rmErr)
+		}
+		return nil, fmt.Errorf("start sandbox: %w", err)
+	}
+
 	s := &Session{
-		ID:        id,
-		Spec:      spec,
-		Status:    StatusPending,
-		CreatedAt: time.Now(),
+		ID:          id,
+		Spec:        spec,
+		Status:      StatusRunning,
+		ContainerID: containerID,
+		CreatedAt:   time.Now(),
 	}
 
 	m.mu.Lock()
@@ -54,7 +73,6 @@ func (m *Manager) Create(spec SessionSpec) (*Session, error) {
 	return s, nil
 }
 
-// Get returns a session by ID, or an error if not found.
 func (m *Manager) Get(id string) (*Session, error) {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
@@ -66,8 +84,6 @@ func (m *Manager) Get(id string) (*Session, error) {
 	return s, nil
 }
 
-// List returns all sessions. Order is not guaranteed
-// (map iteration in Go is random by design).
 func (m *Manager) List() []*Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -79,23 +95,26 @@ func (m *Manager) List() []*Session {
 	return result
 }
 
-// Delete removes a session from the registry.
-// Later this will also stop the container before removing.
-func (m *Manager) Delete(id string) error {
+func (m *Manager) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.sessions[id]; !ok {
+	s, ok := m.sessions[id]
+	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("session not found: %s", id)
 	}
-
 	delete(m.sessions, id)
+	m.mu.Unlock()
+
+	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
+		log.Printf("warning: failed to stop container %s: %v", s.ContainerID[:12], err)
+	}
+	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
+		log.Printf("warning: failed to remove container %s: %v", s.ContainerID[:12], err)
+	}
+
 	return nil
 }
 
-// generateID creates a random 8-byte hex string (16 chars).
-// Using crypto/rand, not math/rand — crypto/rand is safe for
-// IDs that might appear in URLs or logs. No need to seed it.
 func generateID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
