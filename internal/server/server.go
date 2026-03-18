@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/Rsych/zynqel-core/internal/session"
@@ -11,26 +12,28 @@ type Server struct {
 	sessions *session.Manager
 }
 
-// New takes a session.Manager as a dependency.
-// This is dependency injection — the server doesn't create its
-// own manager, it receives one. Makes testing easy: pass a
-// real manager in prod, or a fresh one in each test.
-func New(sm *session.Manager) *Server {
+// New takes a session.Manager and a filesystem for static web assets.
+// Pass nil for webFS to disable the dev console.
+func New(sm *session.Manager, webFS fs.FS) *Server {
 	s := &Server{
 		router:   http.NewServeMux(),
 		sessions: sm,
 	}
-	s.routes()
+	s.routes(webFS)
 	return s
 }
 
-func (s *Server) routes() {
+func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("GET /health", s.handleHealth)
 	s.router.HandleFunc("POST /sessions", s.handleCreateSession)
 	s.router.HandleFunc("GET /sessions", s.handleListSessions)
 	s.router.HandleFunc("GET /sessions/{id}", s.handleGetSession)
 	s.router.HandleFunc("DELETE /sessions/{id}", s.handleDeleteSession)
 	s.router.HandleFunc("GET /sessions/{id}/stream", s.handleSessionStream)
+
+	if webFS != nil {
+		s.router.Handle("GET /console/", http.StripPrefix("/console/", http.FileServer(http.FS(webFS))))
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
