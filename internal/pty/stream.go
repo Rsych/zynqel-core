@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
@@ -12,10 +13,12 @@ import (
 // Stream bridges a container PTY connection with consumer callbacks.
 // It reads output from the container and forwards input to it.
 type Stream struct {
-	conn   sandbox.PTYConn
-	cancel context.CancelFunc
-	done   chan struct{}
-	once   sync.Once
+	conn    sandbox.PTYConn
+	cancel  context.CancelFunc
+	done    chan struct{}
+	once    sync.Once
+	closed  atomic.Bool
+	started atomic.Bool
 }
 
 // New creates a Stream from a PTYConn.
@@ -32,6 +35,7 @@ func New(conn sandbox.PTYConn) *Stream {
 // onOutput is called synchronously from the read loop — do not block in it.
 func (s *Stream) Run(ctx context.Context, onOutput func([]byte)) {
 	ctx, s.cancel = context.WithCancel(ctx)
+	s.started.Store(true)
 	defer close(s.done)
 
 	buf := make([]byte, 4096)
@@ -49,7 +53,7 @@ func (s *Stream) Run(ctx context.Context, onOutput func([]byte)) {
 			onOutput(chunk)
 		}
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && !s.closed.Load() {
 				log.Printf("pty read error: %v", err)
 			}
 			return
@@ -59,17 +63,25 @@ func (s *Stream) Run(ctx context.Context, onOutput func([]byte)) {
 
 // Write sends input to the container's stdin.
 func (s *Stream) Write(data []byte) error {
+	if s.closed.Load() {
+		return io.ErrClosedPipe
+	}
 	_, err := s.conn.Write(data)
 	return err
 }
 
 // Close stops the stream and releases the PTY connection.
+// Safe to call even if Run was never called.
 func (s *Stream) Close() {
 	s.once.Do(func() {
+		s.closed.Store(true)
 		if s.cancel != nil {
 			s.cancel()
 		}
 		_ = s.conn.Close()
-		<-s.done
+		// Only wait for Run to finish if it was started.
+		if s.started.Load() {
+			<-s.done
+		}
 	})
 }
