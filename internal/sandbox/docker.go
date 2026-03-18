@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -29,7 +30,7 @@ func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
 	if err == nil {
 		return nil
 	}
-	if !client.IsErrNotFound(err) {
+	if !errdefs.IsNotFound(err) {
 		return fmt.Errorf("inspect image %s: %w", img, err)
 	}
 

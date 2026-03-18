@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to docker: %v", err)
 	}
-	defer sb.Close()
+	defer func() { _ = sb.Close() }()
 
 	// Sweep orphan containers from previous runs.
 	sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
