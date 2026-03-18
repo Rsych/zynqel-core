@@ -32,7 +32,7 @@ func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("GET /sessions/{id}/stream", s.handleSessionStream)
 
 	if webFS != nil {
-		s.router.Handle("GET /", http.FileServer(http.FS(webFS)))
+		s.router.Handle("GET /console/", http.StripPrefix("/console/", http.FileServer(http.FS(webFS))))
 	}
 }
 

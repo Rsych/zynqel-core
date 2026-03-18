@@ -102,9 +102,11 @@
 
       switch (msg.type) {
         case "pty.output":
-          // Data is base64-encoded
-          var bytes = atob(msg.data);
-          term.write(bytes);
+          // Decode base64 → Uint8Array (binary-safe, handles arbitrary bytes)
+          var raw = atob(msg.data);
+          var buf = new Uint8Array(raw.length);
+          for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+          term.write(buf);
           break;
         case "session.state":
           setStatus(true, msg.data);
@@ -135,10 +137,17 @@
 
   // --- Terminal input → WebSocket ---
 
+  // Encode string → base64 via TextEncoder (binary-safe for multibyte chars).
+  function toBase64(str) {
+    var bytes = new TextEncoder().encode(str);
+    var binary = "";
+    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
   term.onData(function (data) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    var encoded = btoa(data);
-    ws.send(JSON.stringify({ type: "pty.input", data: encoded }));
+    ws.send(JSON.stringify({ type: "pty.input", data: toBase64(data) }));
   });
 
   // --- Button handlers ---
