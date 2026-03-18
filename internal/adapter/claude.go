@@ -23,7 +23,7 @@ func NewClaudeAdapter(sb sandbox.Sandbox) *ClaudeAdapter {
 
 // Start launches the Claude CLI via docker exec with a PTY.
 func (a *ClaudeAdapter) Start(ctx context.Context, containerID string) (sandbox.PTYConn, error) {
-	conn, err := a.sb.Exec(ctx, containerID, []string{"claude"})
+	conn, err := a.sb.Exec(ctx, containerID, []string{"/usr/local/bin/claude"})
 	if err != nil {
 		return nil, err
 	}

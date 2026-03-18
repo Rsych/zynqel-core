@@ -64,9 +64,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	}
 
 	if err := m.sandbox.Start(ctx, containerID); err != nil {
-		if rmErr := m.sandbox.Remove(ctx, containerID); rmErr != nil {
-			log.Printf("failed to remove container %s after start failure: %v", shortid.Format(containerID), rmErr)
-		}
+		m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
 		return nil, fmt.Errorf("start sandbox: %w", err)
 	}
 
@@ -76,8 +74,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		adapterPTY, err = agentAdapter.Start(ctx, containerID)
 		if err != nil {
 			log.Printf("adapter start failed, cleaning up container %s: %v", shortid.Format(containerID), err)
-			_ = m.sandbox.Stop(ctx, containerID)
-			_ = m.sandbox.Remove(ctx, containerID)
+			m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
 			return nil, fmt.Errorf("start agent adapter: %w", err)
 		}
 	}
@@ -131,20 +128,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
-	// Stop adapter first (if any), then container.
-	if s.adapter != nil {
-		if err := s.adapter.Stop(); err != nil {
-			log.Printf("warning: failed to stop adapter for session %s: %v", id, err)
-		}
-	}
-
-	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
-	}
-	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
-	}
-
+	m.cleanupSession(ctx, s)
 	return nil
 }
 
@@ -183,18 +167,23 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, s := range sessions {
-		if s.adapter != nil {
-			if err := s.adapter.Stop(); err != nil {
-				log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
-			}
-		}
-		if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
-			log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
-		}
-		if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
-			log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
-		}
+		m.cleanupSession(ctx, s)
 		log.Printf("cleaned up session %s", s.ID)
+	}
+}
+
+// cleanupSession stops the adapter (if any) and removes the container.
+func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
+	if s.adapter != nil {
+		if err := s.adapter.Stop(); err != nil {
+			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
+		}
+	}
+	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
+		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
+	}
+	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
+		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
 	}
 }
 

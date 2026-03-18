@@ -18,14 +18,25 @@ type AgentAdapter interface {
 }
 
 // New returns an AgentAdapter for the given agent name.
-// Returns an error if the agent is not supported.
+// Returns (nil, nil) for "shell" or "" — the caller should fall back to
+// bare container attach when no adapter is returned.
 func New(agent string, sb sandbox.Sandbox) (AgentAdapter, error) {
 	switch agent {
 	case "claude":
 		return NewClaudeAdapter(sb), nil
 	case "shell", "":
-		return nil, nil // No adapter — use bare shell
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unsupported agent: %s", agent)
+	}
+}
+
+// IsSupported returns true if the agent name is recognized.
+func IsSupported(agent string) bool {
+	switch agent {
+	case "claude", "shell", "":
+		return true
+	default:
+		return false
 	}
 }
