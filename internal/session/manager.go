@@ -15,6 +15,13 @@ import (
 
 const defaultImage = "ubuntu:22.04"
 
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
@@ -57,7 +64,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 
 	if err := m.sandbox.Start(ctx, containerID); err != nil {
 		if rmErr := m.sandbox.Remove(ctx, containerID); rmErr != nil {
-			log.Printf("failed to remove container %s after start failure: %v", containerID[:12], rmErr)
+			log.Printf("failed to remove container %s after start failure: %v", shortID(containerID), rmErr)
 		}
 		return nil, fmt.Errorf("start sandbox: %w", err)
 	}
@@ -110,10 +117,10 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	m.mu.Unlock()
 
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to stop container %s: %v", s.ContainerID[:12], err)
+		log.Printf("warning: failed to stop container %s: %v", shortID(s.ContainerID), err)
 	}
 	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to remove container %s: %v", s.ContainerID[:12], err)
+		log.Printf("warning: failed to remove container %s: %v", shortID(s.ContainerID), err)
 	}
 
 	return nil

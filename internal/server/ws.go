@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -13,11 +14,16 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Dev tool — allow all origins
+		// TODO: restrict to allowed origins for production use
+		return true
 	},
 }
 
 // wsMessage is the envelope for all WebSocket messages.
+//
+// For pty.output, Data is a base64-encoded string (terminal output may contain
+// arbitrary bytes). For pty.input, Data is a base64-encoded string that will
+// be decoded and forwarded to the container's stdin.
 type wsMessage struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data,omitempty"`
@@ -27,12 +33,12 @@ type wsMessage struct {
 //
 // Server → Client messages:
 //
-//	{"type": "pty.output", "data": "..."}  — terminal output (raw string)
-//	{"type": "session.state", "data": "running"} — sent on connect
+//	{"type": "pty.output", "data": "<base64>"}     — terminal output
+//	{"type": "session.state", "data": "running"}   — sent on connect
 //
 // Client → Server messages:
 //
-//	{"type": "pty.input", "data": "..."}   — keyboard input (raw string)
+//	{"type": "pty.input", "data": "<base64>"}      — keyboard input
 func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -52,7 +58,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 		log.Printf("websocket upgrade failed: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ptyConn, err := s.sessions.Attach(r.Context(), id)
 	if err != nil {
@@ -67,11 +73,12 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	var wsMu sync.Mutex
 
 	// Send current session state on connect.
-	sendWSMessage(conn, &wsMu, "session.state", string(sess.Status))
+	sendWSJSON(conn, &wsMu, "session.state", string(sess.Status))
 
-	// Read loop: PTY → WebSocket
+	// Read loop: PTY → WebSocket (base64-encoded output)
 	go stream.Run(r.Context(), func(data []byte) {
-		sendWSMessage(conn, &wsMu, "pty.output", string(data))
+		encoded := base64.StdEncoding.EncodeToString(data)
+		sendWSJSON(conn, &wsMu, "pty.output", encoded)
 	})
 
 	// Write loop: WebSocket → PTY
@@ -92,12 +99,17 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Type {
 		case "pty.input":
-			var input string
-			if err := json.Unmarshal(msg.Data, &input); err != nil {
+			var b64Input string
+			if err := json.Unmarshal(msg.Data, &b64Input); err != nil {
 				log.Printf("invalid pty.input data: %v", err)
 				continue
 			}
-			if err := stream.Write([]byte(input)); err != nil {
+			decoded, err := base64.StdEncoding.DecodeString(b64Input)
+			if err != nil {
+				log.Printf("invalid pty.input base64: %v", err)
+				continue
+			}
+			if err := stream.Write(decoded); err != nil {
 				log.Printf("pty write error for session %s: %v", id, err)
 				return
 			}
@@ -107,7 +119,8 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func sendWSMessage(conn *websocket.Conn, mu *sync.Mutex, msgType string, data string) {
+// sendWSJSON sends a typed JSON message over the WebSocket connection.
+func sendWSJSON(conn *websocket.Conn, mu *sync.Mutex, msgType string, data string) {
 	raw, _ := json.Marshal(data)
 	msg := wsMessage{Type: msgType, Data: raw}
 	payload, err := json.Marshal(msg)
