@@ -46,13 +46,22 @@
     return proto + "//" + window.location.host + "/sessions/" + sessionId + "/stream";
   }
 
+  async function apiFetch(url, opts) {
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(res.status + ": " + body);
+    }
+    return res;
+  }
+
   async function fetchSessions() {
-    const res = await fetch(apiUrl("/sessions"));
+    const res = await apiFetch(apiUrl("/sessions"));
     return res.json();
   }
 
   async function createSession() {
-    const res = await fetch(apiUrl("/sessions"), {
+    const res = await apiFetch(apiUrl("/sessions"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent: "shell" }),
@@ -61,21 +70,45 @@
   }
 
   async function killSession(id) {
-    await fetch(apiUrl("/sessions/" + id), { method: "DELETE" });
+    await apiFetch(apiUrl("/sessions/" + id), { method: "DELETE" });
   }
 
   // --- Session list ---
 
   async function refreshSessions() {
-    const sessions = await fetchSessions();
-    selectEl.innerHTML = '<option value="">-- select session --</option>';
-    sessions.forEach(function (s) {
-      const opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = s.id.substring(0, 8) + " (" + s.status + ")";
-      if (s.id === currentSessionId) opt.selected = true;
-      selectEl.appendChild(opt);
-    });
+    try {
+      const sessions = await fetchSessions();
+      selectEl.innerHTML = '<option value="">-- select session --</option>';
+      sessions.forEach(function (s) {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = s.id.substring(0, 8) + " (" + s.status + ")";
+        if (s.id === currentSessionId) opt.selected = true;
+        selectEl.appendChild(opt);
+      });
+    } catch (e) {
+      term.writeln("\r\n\x1B[31mFailed to list sessions: " + e.message + "\x1B[0m");
+    }
+  }
+
+  // --- Base64 helpers (binary-safe) ---
+
+  function decodeBase64(b64) {
+    try {
+      const raw = atob(b64);
+      const buf = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+      return buf;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function toBase64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
   }
 
   // --- WebSocket connection ---
@@ -93,7 +126,7 @@
     };
 
     ws.onmessage = function (event) {
-      var msg;
+      let msg;
       try {
         msg = JSON.parse(event.data);
       } catch (e) {
@@ -101,13 +134,11 @@
       }
 
       switch (msg.type) {
-        case "pty.output":
-          // Decode base64 → Uint8Array (binary-safe, handles arbitrary bytes)
-          var raw = atob(msg.data);
-          var buf = new Uint8Array(raw.length);
-          for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
-          term.write(buf);
+        case "pty.output": {
+          const buf = decodeBase64(msg.data);
+          if (buf) term.write(buf);
           break;
+        }
         case "session.state":
           setStatus(true, msg.data);
           break;
@@ -135,15 +166,7 @@
     setStatus(false, "disconnected");
   }
 
-  // --- Terminal input → WebSocket ---
-
-  // Encode string → base64 via TextEncoder (binary-safe for multibyte chars).
-  function toBase64(str) {
-    var bytes = new TextEncoder().encode(str);
-    var binary = "";
-    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
-  }
+  // --- Terminal input -> WebSocket ---
 
   term.onData(function (data) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -154,7 +177,7 @@
 
   btnCreate.addEventListener("click", async function () {
     try {
-      var sess = await createSession();
+      const sess = await createSession();
       await refreshSessions();
       selectEl.value = sess.id;
       connectWS(sess.id);
@@ -179,7 +202,7 @@
   btnRefresh.addEventListener("click", refreshSessions);
 
   selectEl.addEventListener("change", function () {
-    var id = selectEl.value;
+    const id = selectEl.value;
     if (id) {
       connectWS(id);
     } else {
