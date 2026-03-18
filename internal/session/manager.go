@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Rsych/zynqel-core/internal/adapter"
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/shortid"
@@ -37,6 +38,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
+	// Validate agent and create adapter (nil for bare shell).
+	agentAdapter, err := adapter.New(spec.Agent, m.sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("create adapter: %w", err)
+	}
+
 	if spec.Env == nil {
 		spec.Env = make(map[string]string)
 	}
@@ -63,12 +70,26 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("start sandbox: %w", err)
 	}
 
+	// If an adapter is configured, start the agent inside the container.
+	var adapterPTY sandbox.PTYConn
+	if agentAdapter != nil {
+		adapterPTY, err = agentAdapter.Start(ctx, containerID)
+		if err != nil {
+			log.Printf("adapter start failed, cleaning up container %s: %v", shortid.Format(containerID), err)
+			_ = m.sandbox.Stop(ctx, containerID)
+			_ = m.sandbox.Remove(ctx, containerID)
+			return nil, fmt.Errorf("start agent adapter: %w", err)
+		}
+	}
+
 	s := &Session{
 		ID:          id,
 		Spec:        spec,
 		Status:      StatusRunning,
 		ContainerID: containerID,
 		CreatedAt:   time.Now(),
+		adapter:     agentAdapter,
+		adapterPTY:  adapterPTY,
 	}
 
 	m.mu.Lock()
@@ -110,6 +131,13 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
+	// Stop adapter first (if any), then container.
+	if s.adapter != nil {
+		if err := s.adapter.Stop(); err != nil {
+			log.Printf("warning: failed to stop adapter for session %s: %v", id, err)
+		}
+	}
+
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
 	}
@@ -120,7 +148,9 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Attach returns a PTY connection to the container for the given session.
+// Attach returns a PTY connection for the given session.
+// If the session has an agent adapter, returns the adapter's PTY.
+// Otherwise, attaches directly to the container's main process.
 func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error) {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
@@ -131,6 +161,11 @@ func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error
 	}
 	if s.Status != StatusRunning {
 		return nil, fmt.Errorf("session %s is not running", id)
+	}
+
+	// If an adapter is active, return its exec PTY.
+	if s.adapterPTY != nil {
+		return s.adapterPTY, nil
 	}
 
 	return m.sandbox.Attach(ctx, s.ContainerID)
@@ -148,6 +183,11 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, s := range sessions {
+		if s.adapter != nil {
+			if err := s.adapter.Stop(); err != nil {
+				log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
+			}
+		}
 		if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 			log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
 		}

@@ -171,6 +171,31 @@ func (c *dockerPTYConn) Close() error {
 	return nil
 }
 
+// Exec runs a command inside a running container with a PTY.
+// Returns a PTYConn connected to the exec process's stdin/stdout.
+func (d *DockerSandbox) Exec(ctx context.Context, id string, cmd []string) (PTYConn, error) {
+	execCfg := container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          true,
+	}
+	execResp, err := d.cli.ContainerExecCreate(ctx, id, execCfg)
+	if err != nil {
+		return nil, fmt.Errorf("exec create in container %s: %w", shortid.Format(id), err)
+	}
+
+	attachResp, err := d.cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{
+		Tty: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("exec attach in container %s: %w", shortid.Format(id), err)
+	}
+
+	return &dockerPTYConn{resp: attachResp}, nil
+}
+
 func (d *DockerSandbox) Close() error {
 	return d.cli.Close()
 }
