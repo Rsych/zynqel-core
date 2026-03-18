@@ -119,6 +119,22 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// Attach returns a PTY connection to the container for the given session.
+func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	if s.Status != StatusRunning {
+		return nil, fmt.Errorf("session %s is not running", id)
+	}
+
+	return m.sandbox.Attach(ctx, s.ContainerID)
+}
+
 func generateID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {

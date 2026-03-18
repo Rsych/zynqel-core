@@ -1,6 +1,9 @@
 package sandbox
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // LabelManaged is the label key used to identify containers created by Zynqel.
 // Sweep uses this to find and remove orphaned containers.
@@ -15,6 +18,14 @@ type Sandbox interface {
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
+	Attach(ctx context.Context, id string) (PTYConn, error)
+}
+
+// PTYConn is a bidirectional connection to a container's PTY.
+// Read returns terminal output, Write sends keyboard input.
+// Close detaches from the container.
+type PTYConn interface {
+	io.ReadWriteCloser
 }
 
 // Spec describes what the sandbox should look like.

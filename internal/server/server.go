@@ -30,6 +30,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("GET /sessions", s.handleListSessions)
 	s.router.HandleFunc("GET /sessions/{id}", s.handleGetSession)
 	s.router.HandleFunc("DELETE /sessions/{id}", s.handleDeleteSession)
+	s.router.HandleFunc("GET /sessions/{id}/stream", s.handleSessionStream)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

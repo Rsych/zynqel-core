@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -133,6 +134,40 @@ func (d *DockerSandbox) Sweep(ctx context.Context) (int, error) {
 		removed++
 	}
 	return removed, nil
+}
+
+// Attach connects to a running container's PTY (stdin + stdout/stderr).
+// The container must have been created with Tty: true and OpenStdin: true.
+func (d *DockerSandbox) Attach(ctx context.Context, id string) (PTYConn, error) {
+	resp, err := d.cli.ContainerAttach(ctx, id, container.AttachOptions{
+		Stream: true,
+		Stdin:  true,
+		Stdout: true,
+		Stderr: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("attach container %s: %w", id[:12], err)
+	}
+	return &dockerPTYConn{resp: resp}, nil
+}
+
+// dockerPTYConn wraps Docker's HijackedResponse as a PTYConn.
+// With Tty: true, stdout and stderr are multiplexed into a single stream.
+type dockerPTYConn struct {
+	resp types.HijackedResponse
+}
+
+func (c *dockerPTYConn) Read(p []byte) (int, error) {
+	return c.resp.Reader.Read(p)
+}
+
+func (c *dockerPTYConn) Write(p []byte) (int, error) {
+	return c.resp.Conn.Write(p)
+}
+
+func (c *dockerPTYConn) Close() error {
+	c.resp.Close()
+	return nil
 }
 
 func (d *DockerSandbox) Close() error {
