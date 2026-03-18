@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/server"
 	"github.com/Rsych/zynqel-core/internal/session"
@@ -17,6 +20,13 @@ func main() {
 		port = "8080"
 	}
 
+	// Load resource policy from environment.
+	rp, err := policy.PolicyFromEnv()
+	if err != nil {
+		log.Fatalf("invalid resource policy: %v", err)
+	}
+	log.Printf("resource policy: memory=%dMB cpu=%d%%", rp.MemoryMB, rp.CPUQuota)
+
 	// Connect to Docker daemon.
 	sb, err := sandbox.NewDockerSandbox()
 	if err != nil {
@@ -24,7 +34,17 @@ func main() {
 	}
 	defer sb.Close()
 
-	sm := session.NewManager(sb)
+	// Sweep orphan containers from previous runs.
+	sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	n, err := sb.Sweep(sweepCtx)
+	if err != nil {
+		log.Printf("warning: orphan sweep failed: %v", err)
+	} else if n > 0 {
+		log.Printf("orphan sweep: removed %d stale container(s)", n)
+	}
+
+	sm := session.NewManager(sb, rp)
 	srv := server.New(sm)
 
 	addr := fmt.Sprintf(":%s", port)

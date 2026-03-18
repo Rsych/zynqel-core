@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -147,6 +148,99 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	_, err = cli.ContainerInspect(ctx, containerID)
 	if err == nil {
 		t.Fatal("container should not exist after force Remove")
+	}
+}
+
+func TestDockerSandbox_ResourceLimits(t *testing.T) {
+	cli := mustDockerClient(t)
+	defer cli.Close()
+
+	sb, err := NewDockerSandbox()
+	if err != nil {
+		t.Fatalf("NewDockerSandbox: %v", err)
+	}
+	defer sb.Close()
+
+	ctx := context.Background()
+
+	spec := Spec{
+		Image: "ubuntu:22.04",
+		Labels: map[string]string{
+			"zynqel.managed":    "true",
+			"zynqel.session-id": "test-limits",
+		},
+		MemoryBytes: 256 * 1024 * 1024, // 256 MB
+		NanoCPUs:    5e8,               // 0.5 cores
+	}
+
+	containerID, err := sb.Create(ctx, spec)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() { _ = sb.Remove(ctx, containerID) }()
+
+	info, err := cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+
+	if info.HostConfig.Memory != 256*1024*1024 {
+		t.Errorf("Memory = %d, want %d", info.HostConfig.Memory, 256*1024*1024)
+	}
+	if info.HostConfig.NanoCPUs != 5e8 {
+		t.Errorf("NanoCPUs = %d, want %d", info.HostConfig.NanoCPUs, int64(5e8))
+	}
+}
+
+func TestDockerSandbox_Sweep(t *testing.T) {
+	cli := mustDockerClient(t)
+	defer cli.Close()
+
+	sb, err := NewDockerSandbox()
+	if err != nil {
+		t.Fatalf("NewDockerSandbox: %v", err)
+	}
+	defer sb.Close()
+
+	ctx := context.Background()
+
+	// Create two orphan containers.
+	var ids []string
+	for i := 0; i < 2; i++ {
+		spec := Spec{
+			Image: "ubuntu:22.04",
+			Labels: map[string]string{
+				"zynqel.managed":    "true",
+				"zynqel.session-id": fmt.Sprintf("orphan-%d", i),
+			},
+		}
+		id, err := sb.Create(ctx, spec)
+		if err != nil {
+			t.Fatalf("Create orphan %d: %v", i, err)
+		}
+		ids = append(ids, id)
+	}
+
+	// Start one so sweep handles both running and stopped containers.
+	if err := sb.Start(ctx, ids[0]); err != nil {
+		t.Fatalf("Start orphan: %v", err)
+	}
+
+	// Sweep should remove both.
+	n, err := sb.Sweep(ctx)
+	if err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("Sweep removed %d containers, want 2", n)
+	}
+
+	// Verify they're gone.
+	for _, id := range ids {
+		_, err := cli.ContainerInspect(ctx, id)
+		if err == nil {
+			t.Errorf("container %s should not exist after Sweep", id[:12])
+		}
 	}
 }
 
