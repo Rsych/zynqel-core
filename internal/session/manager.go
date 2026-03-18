@@ -136,6 +136,28 @@ func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error
 	return m.sandbox.Attach(ctx, s.ContainerID)
 }
 
+// Shutdown stops and removes all active sessions.
+// Called during server shutdown to clean up containers.
+func (m *Manager) Shutdown(ctx context.Context) {
+	m.mu.Lock()
+	sessions := make([]*Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.sessions = make(map[string]*Session)
+	m.mu.Unlock()
+
+	for _, s := range sessions {
+		if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
+			log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
+		}
+		if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
+			log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
+		}
+		log.Printf("cleaned up session %s", s.ID)
+	}
+}
+
 func generateID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {

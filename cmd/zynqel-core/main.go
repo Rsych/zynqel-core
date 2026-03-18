@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Rsych/zynqel-core/internal/policy"
@@ -36,8 +38,8 @@ func main() {
 	defer func() { _ = sb.Close() }()
 
 	// Sweep orphan containers from previous runs.
-	sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer sweepCancel()
 	n, err := sb.Sweep(sweepCtx)
 	if err != nil {
 		log.Printf("warning: orphan sweep failed: %v", err)
@@ -55,10 +57,36 @@ func main() {
 	}
 	srv := server.New(sm, webFS)
 
-	addr := fmt.Sprintf(":%s", port)
-	log.Printf("zynqel-core starting on %s", addr)
-
-	if err := http.ListenAndServe(addr, srv); err != nil {
-		log.Fatalf("server failed: %v", err)
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%s", port),
+		Handler: srv,
 	}
+
+	// Start HTTP server in a goroutine.
+	go func() {
+		log.Printf("zynqel-core starting on %s", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server failed: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-sigCh
+	log.Printf("received %v, shutting down...", sig)
+
+	// Phase 1: Stop accepting new HTTP connections, finish in-flight requests.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("warning: http shutdown: %v", err)
+	}
+
+	// Phase 2: Clean up all sessions (stop + remove containers).
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cleanupCancel()
+	sm.Shutdown(cleanupCtx)
+
+	log.Println("shutdown complete")
 }
