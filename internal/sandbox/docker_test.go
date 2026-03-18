@@ -25,13 +25,13 @@ func mustDockerClient(t *testing.T) *client.Client {
 
 func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	cli := mustDockerClient(t)
-	defer cli.Close()
+	t.Cleanup(func() { _ = cli.Close() })
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	ctx := context.Background()
 
@@ -112,13 +112,13 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 
 func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	cli := mustDockerClient(t)
-	defer cli.Close()
+	t.Cleanup(func() { _ = cli.Close() })
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	ctx := context.Background()
 
@@ -151,13 +151,13 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 
 func TestDockerSandbox_ResourceLimits(t *testing.T) {
 	cli := mustDockerClient(t)
-	defer cli.Close()
+	t.Cleanup(func() { _ = cli.Close() })
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	ctx := context.Background()
 
@@ -191,13 +191,13 @@ func TestDockerSandbox_ResourceLimits(t *testing.T) {
 
 func TestDockerSandbox_Sweep(t *testing.T) {
 	cli := mustDockerClient(t)
-	defer cli.Close()
+	t.Cleanup(func() { _ = cli.Close() })
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	ctx := context.Background()
 
@@ -207,7 +207,6 @@ func TestDockerSandbox_Sweep(t *testing.T) {
 		spec := Spec{
 			Image: "ubuntu:22.04",
 			Labels: map[string]string{
-				"zynqel.managed":    "true",
 				"zynqel.session-id": fmt.Sprintf("orphan-%d", i),
 			},
 		}
@@ -248,7 +247,7 @@ func TestDockerSandbox_CreateBadImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	spec := Spec{
 		Image: "this-image-does-not-exist:never",

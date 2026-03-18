@@ -25,7 +25,7 @@ func NewDockerSandbox() (*DockerSandbox, error) {
 }
 
 func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
-	_, _, err := d.cli.ImageInspectWithRaw(ctx, img)
+	_, err := d.cli.ImageInspect(ctx, img)
 	if err == nil {
 		return nil
 	}
@@ -38,7 +38,7 @@ func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
 	if err != nil {
 		return fmt.Errorf("pull image %s: %w", img, err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	if _, err := io.Copy(io.Discard, reader); err != nil {
 		return fmt.Errorf("pull image %s: %w", img, err)
 	}

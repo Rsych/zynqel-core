@@ -1,7 +1,6 @@
 package policy
 
 import (
-	"os"
 	"testing"
 )
 
@@ -41,8 +40,8 @@ func TestNanoCPUs(t *testing.T) {
 }
 
 func TestPolicyFromEnv_Defaults(t *testing.T) {
-	os.Unsetenv("ZYNQEL_SESSION_MEMORY_MB")
-	os.Unsetenv("ZYNQEL_SESSION_CPU_QUOTA")
+	t.Setenv("ZYNQEL_SESSION_MEMORY_MB", "")
+	t.Setenv("ZYNQEL_SESSION_CPU_QUOTA", "")
 
 	p, err := PolicyFromEnv()
 	if err != nil {
