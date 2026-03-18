@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -45,7 +46,14 @@ func main() {
 	}
 
 	sm := session.NewManager(sb, rp)
-	srv := server.New(sm)
+
+	// Serve web dev console from ./web directory if it exists.
+	var webFS fs.FS
+	if info, err := os.Stat("web"); err == nil && info.IsDir() {
+		webFS = os.DirFS("web")
+		log.Println("serving dev console from ./web")
+	}
+	srv := server.New(sm, webFS)
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("zynqel-core starting on %s", addr)
