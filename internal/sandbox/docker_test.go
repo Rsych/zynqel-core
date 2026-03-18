@@ -39,7 +39,6 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		Image: "ubuntu:22.04",
 		Env:   map[string]string{"TEST_VAR": "hello"},
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": "test-session-001",
 		},
 	}
@@ -59,8 +58,8 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	if info.State.Running {
 		t.Fatal("container should not be running before Start")
 	}
-	if info.Config.Labels["zynqel.managed"] != "true" {
-		t.Error("expected zynqel.managed=true label")
+	if info.Config.Labels[LabelManaged] != "true" {
+		t.Error("expected zynqel.managed=true label (auto-injected by Create)")
 	}
 	if info.Config.Labels["zynqel.session-id"] != "test-session-001" {
 		t.Error("expected zynqel.session-id label")
@@ -126,7 +125,6 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	spec := Spec{
 		Image: "ubuntu:22.04",
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": "test-force-kill",
 		},
 	}
@@ -166,7 +164,6 @@ func TestDockerSandbox_ResourceLimits(t *testing.T) {
 	spec := Spec{
 		Image: "ubuntu:22.04",
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": "test-limits",
 		},
 		MemoryBytes: 256 * 1024 * 1024, // 256 MB

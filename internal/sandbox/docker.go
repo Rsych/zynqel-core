@@ -56,10 +56,16 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 		env = append(env, k+"="+v)
 	}
 
+	labels := make(map[string]string, len(spec.Labels)+1)
+	for k, v := range spec.Labels {
+		labels[k] = v
+	}
+	labels[LabelManaged] = "true"
+
 	config := &container.Config{
 		Image:     spec.Image,
 		Env:       env,
-		Labels:    spec.Labels,
+		Labels:    labels,
 		Tty:       true,
 		OpenStdin: true,
 		Cmd:       []string{"/bin/sh"},
@@ -108,7 +114,7 @@ func (d *DockerSandbox) Remove(ctx context.Context, id string) error {
 // Sweep finds and removes all containers labeled zynqel.managed=true.
 // Intended to run on boot to clean up orphans from previous runs.
 func (d *DockerSandbox) Sweep(ctx context.Context) (int, error) {
-	args := filters.NewArgs(filters.Arg("label", "zynqel.managed=true"))
+	args := filters.NewArgs(filters.Arg("label", LabelManaged+"=true"))
 	containers, err := d.cli.ContainerList(ctx, container.ListOptions{
 		All:     true,
 		Filters: args,

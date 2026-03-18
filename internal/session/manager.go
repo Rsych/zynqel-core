@@ -44,7 +44,6 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		Image: defaultImage,
 		Env:   spec.Env,
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": id,
 		},
 		MemoryBytes: m.policy.MemoryBytes(),

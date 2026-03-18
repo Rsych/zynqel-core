@@ -2,6 +2,10 @@ package sandbox
 
 import "context"
 
+// LabelManaged is the label key used to identify containers created by Zynqel.
+// Sweep uses this to find and remove orphaned containers.
+const LabelManaged = "zynqel.managed"
+
 // Sandbox defines the contract for an execution backend.
 // All methods take a context.Context — this is standard Go
 // for anything that does I/O. It lets callers control
