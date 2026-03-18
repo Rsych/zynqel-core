@@ -63,7 +63,7 @@ ticket_from_issue() {
   printf '%s-%02d' "$TICKET_PREFIX" "$issue_number"
 }
 
-branch_pattern="^(feature|fix|refactor|bugfix)/${TICKET_PREFIX}-[0-9]{2,}_[a-z0-9][a-z0-9_]*$"
+branch_pattern="^(feature|fix|refactor|bugfix)/${TICKET_PREFIX}-[0-9]+_[a-z0-9][a-z0-9_]*$"
 
 set_project_status() {
   local issue_number="$1"
@@ -115,8 +115,18 @@ start_flow() {
   fi
 
   issue_title="$(gh issue view "$issue_number" --json title --jq '.title')"
-  ticket="$(ticket_from_issue "$issue_number")"
-  slug="$(slugify "$issue_title")"
+
+  # Extract ZYNQ ticket from issue title (e.g. "ZYNQ-05: PTY attach..." → "ZYNQ-05")
+  if [[ "$issue_title" =~ ^${TICKET_PREFIX}-([0-9]+) ]]; then
+    ticket="${TICKET_PREFIX}-${BASH_REMATCH[1]}"
+    # Slug from the part after "ZYNQ-XX: "
+    local title_rest="${issue_title#*: }"
+    slug="$(slugify "$title_rest")"
+  else
+    # Fallback: use GitHub issue number if no ZYNQ prefix in title
+    ticket="$(ticket_from_issue "$issue_number")"
+    slug="$(slugify "$issue_title")"
+  fi
   branch="${kind}/${ticket}_${slug}"
 
   if [[ ! "$branch" =~ $branch_pattern ]]; then
@@ -146,7 +156,13 @@ open_pr_flow() {
   fi
 
   issue_title="$(gh issue view "$issue_number" --json title --jq '.title')"
-  ticket="$(ticket_from_issue "$issue_number")"
+
+  # Extract ZYNQ ticket from issue title if present
+  if [[ "$issue_title" =~ ^${TICKET_PREFIX}-([0-9]+) ]]; then
+    ticket="${TICKET_PREFIX}-${BASH_REMATCH[1]}"
+  else
+    ticket="$(ticket_from_issue "$issue_number")"
+  fi
   pr_title="[$ticket] $issue_title"
 
   git push -u origin "$branch"
