@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 )
@@ -24,11 +26,11 @@ func NewDockerSandbox() (*DockerSandbox, error) {
 }
 
 func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
-	_, _, err := d.cli.ImageInspectWithRaw(ctx, img)
+	_, err := d.cli.ImageInspect(ctx, img)
 	if err == nil {
 		return nil
 	}
-	if !client.IsErrNotFound(err) {
+	if !errdefs.IsNotFound(err) {
 		return fmt.Errorf("inspect image %s: %w", img, err)
 	}
 
@@ -37,7 +39,7 @@ func (d *DockerSandbox) ensureImage(ctx context.Context, img string) error {
 	if err != nil {
 		return fmt.Errorf("pull image %s: %w", img, err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	if _, err := io.Copy(io.Discard, reader); err != nil {
 		return fmt.Errorf("pull image %s: %w", img, err)
 	}
@@ -55,20 +57,32 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 		env = append(env, k+"="+v)
 	}
 
+	labels := make(map[string]string, len(spec.Labels)+1)
+	for k, v := range spec.Labels {
+		labels[k] = v
+	}
+	labels[LabelManaged] = "true"
+
 	config := &container.Config{
 		Image:     spec.Image,
 		Env:       env,
-		Labels:    spec.Labels,
+		Labels:    labels,
 		Tty:       true,
 		OpenStdin: true,
 		Cmd:       []string{"/bin/sh"},
 	}
 
 	hostConfig := &container.HostConfig{}
+	if spec.MemoryBytes > 0 || spec.NanoCPUs > 0 {
+		hostConfig.Resources = container.Resources{
+			Memory:   spec.MemoryBytes,
+			NanoCPUs: spec.NanoCPUs,
+		}
+	}
 
 	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
 	if err != nil {
-		return "", fmt.Errorf("create container: %w", err)
+		return "", fmt.Errorf("create container (image=%s): %w", spec.Image, err)
 	}
 
 	return resp.ID, nil
@@ -96,6 +110,29 @@ func (d *DockerSandbox) Remove(ctx context.Context, id string) error {
 		return fmt.Errorf("remove container %s: %w", id[:12], err)
 	}
 	return nil
+}
+
+// Sweep finds and removes all containers labeled zynqel.managed=true.
+// Intended to run on boot to clean up orphans from previous runs.
+func (d *DockerSandbox) Sweep(ctx context.Context) (int, error) {
+	args := filters.NewArgs(filters.Arg("label", LabelManaged+"=true"))
+	containers, err := d.cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: args,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("list orphan containers: %w", err)
+	}
+
+	removed := 0
+	for _, c := range containers {
+		if err := d.cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil {
+			log.Printf("warning: failed to remove orphan container %s: %v", c.ID[:12], err)
+			continue
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 func (d *DockerSandbox) Close() error {

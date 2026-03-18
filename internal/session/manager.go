@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
 
@@ -18,12 +19,14 @@ type Manager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
 	sandbox  sandbox.Sandbox
+	policy   policy.ResourcePolicy
 }
 
-func NewManager(sb sandbox.Sandbox) *Manager {
+func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
 		sandbox:  sb,
+		policy:   p,
 	}
 }
 
@@ -41,9 +44,10 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		Image: defaultImage,
 		Env:   spec.Env,
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": id,
 		},
+		MemoryBytes: m.policy.MemoryBytes(),
+		NanoCPUs:    m.policy.NanoCPUs(),
 	}
 
 	containerID, err := m.sandbox.Create(ctx, sbSpec)

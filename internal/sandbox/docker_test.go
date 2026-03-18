@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,13 +25,13 @@ func mustDockerClient(t *testing.T) *client.Client {
 
 func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	cli := mustDockerClient(t)
-	defer cli.Close()
+	t.Cleanup(func() { _ = cli.Close() })
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	ctx := context.Background()
 
@@ -38,7 +39,6 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 		Image: "ubuntu:22.04",
 		Env:   map[string]string{"TEST_VAR": "hello"},
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": "test-session-001",
 		},
 	}
@@ -58,8 +58,8 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	if info.State.Running {
 		t.Fatal("container should not be running before Start")
 	}
-	if info.Config.Labels["zynqel.managed"] != "true" {
-		t.Error("expected zynqel.managed=true label")
+	if info.Config.Labels[LabelManaged] != "true" {
+		t.Error("expected zynqel.managed=true label (auto-injected by Create)")
 	}
 	if info.Config.Labels["zynqel.session-id"] != "test-session-001" {
 		t.Error("expected zynqel.session-id label")
@@ -112,20 +112,19 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 
 func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	cli := mustDockerClient(t)
-	defer cli.Close()
+	t.Cleanup(func() { _ = cli.Close() })
 
 	sb, err := NewDockerSandbox()
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	ctx := context.Background()
 
 	spec := Spec{
 		Image: "ubuntu:22.04",
 		Labels: map[string]string{
-			"zynqel.managed":    "true",
 			"zynqel.session-id": "test-force-kill",
 		},
 	}
@@ -150,6 +149,97 @@ func TestDockerSandbox_RemoveForceKillsRunning(t *testing.T) {
 	}
 }
 
+func TestDockerSandbox_ResourceLimits(t *testing.T) {
+	cli := mustDockerClient(t)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	sb, err := NewDockerSandbox()
+	if err != nil {
+		t.Fatalf("NewDockerSandbox: %v", err)
+	}
+	t.Cleanup(func() { _ = sb.Close() })
+
+	ctx := context.Background()
+
+	spec := Spec{
+		Image: "ubuntu:22.04",
+		Labels: map[string]string{
+			"zynqel.session-id": "test-limits",
+		},
+		MemoryBytes: 256 * 1024 * 1024, // 256 MB
+		NanoCPUs:    5e8,               // 0.5 cores
+	}
+
+	containerID, err := sb.Create(ctx, spec)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer func() { _ = sb.Remove(ctx, containerID) }()
+
+	info, err := cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+
+	if info.HostConfig.Memory != 256*1024*1024 {
+		t.Errorf("Memory = %d, want %d", info.HostConfig.Memory, 256*1024*1024)
+	}
+	if info.HostConfig.NanoCPUs != 5e8 {
+		t.Errorf("NanoCPUs = %d, want %d", info.HostConfig.NanoCPUs, int64(5e8))
+	}
+}
+
+func TestDockerSandbox_Sweep(t *testing.T) {
+	cli := mustDockerClient(t)
+	t.Cleanup(func() { _ = cli.Close() })
+
+	sb, err := NewDockerSandbox()
+	if err != nil {
+		t.Fatalf("NewDockerSandbox: %v", err)
+	}
+	t.Cleanup(func() { _ = sb.Close() })
+
+	ctx := context.Background()
+
+	// Create two orphan containers.
+	var ids []string
+	for i := 0; i < 2; i++ {
+		spec := Spec{
+			Image: "ubuntu:22.04",
+			Labels: map[string]string{
+				"zynqel.session-id": fmt.Sprintf("orphan-%d", i),
+			},
+		}
+		id, err := sb.Create(ctx, spec)
+		if err != nil {
+			t.Fatalf("Create orphan %d: %v", i, err)
+		}
+		ids = append(ids, id)
+	}
+
+	// Start one so sweep handles both running and stopped containers.
+	if err := sb.Start(ctx, ids[0]); err != nil {
+		t.Fatalf("Start orphan: %v", err)
+	}
+
+	// Sweep should remove both.
+	n, err := sb.Sweep(ctx)
+	if err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("Sweep removed %d containers, want 2", n)
+	}
+
+	// Verify they're gone.
+	for _, id := range ids {
+		_, err := cli.ContainerInspect(ctx, id)
+		if err == nil {
+			t.Errorf("container %s should not exist after Sweep", id[:12])
+		}
+	}
+}
+
 func TestDockerSandbox_CreateBadImage(t *testing.T) {
 	_ = mustDockerClient(t)
 
@@ -157,7 +247,7 @@ func TestDockerSandbox_CreateBadImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	defer sb.Close()
+	t.Cleanup(func() { _ = sb.Close() })
 
 	spec := Spec{
 		Image: "this-image-does-not-exist:never",

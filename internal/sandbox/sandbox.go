@@ -2,6 +2,10 @@ package sandbox
 
 import "context"
 
+// LabelManaged is the label key used to identify containers created by Zynqel.
+// Sweep uses this to find and remove orphaned containers.
+const LabelManaged = "zynqel.managed"
+
 // Sandbox defines the contract for an execution backend.
 // All methods take a context.Context — this is standard Go
 // for anything that does I/O. It lets callers control
@@ -18,7 +22,9 @@ type Sandbox interface {
 // doesn't need to know about agents or repos, just the
 // container config.
 type Spec struct {
-	Image  string            // Docker image to run
-	Env    map[string]string // Environment variables
-	Labels map[string]string // Container labels for identification
+	Image       string            // Docker image to run
+	Env         map[string]string // Environment variables
+	Labels      map[string]string // Container labels for identification
+	MemoryBytes int64             // Memory limit in bytes (0 = no limit)
+	NanoCPUs    int64             // CPU limit in Docker NanoCPU units (1e9 = 1 core, 0 = no limit)
 }
