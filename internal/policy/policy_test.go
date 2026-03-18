@@ -100,3 +100,19 @@ func TestPolicyFromEnv_NegativeCPU(t *testing.T) {
 		t.Fatal("expected error for zero ZYNQEL_SESSION_CPU_QUOTA")
 	}
 }
+
+func TestPolicyFromEnv_MemoryExceedsMax(t *testing.T) {
+	t.Setenv("ZYNQEL_SESSION_MEMORY_MB", "9999")
+	_, err := PolicyFromEnv()
+	if err == nil {
+		t.Fatal("expected error for memory exceeding max")
+	}
+}
+
+func TestPolicyFromEnv_CPUExceedsMax(t *testing.T) {
+	t.Setenv("ZYNQEL_SESSION_CPU_QUOTA", "9999")
+	_, err := PolicyFromEnv()
+	if err == nil {
+		t.Fatal("expected error for CPU quota exceeding max")
+	}
+}

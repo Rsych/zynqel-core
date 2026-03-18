@@ -75,7 +75,7 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 
 	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
 	if err != nil {
-		return "", fmt.Errorf("create container: %w", err)
+		return "", fmt.Errorf("create container (image=%s): %w", spec.Image, err)
 	}
 
 	return resp.ID, nil

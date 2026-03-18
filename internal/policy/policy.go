@@ -6,6 +6,11 @@ import (
 	"strconv"
 )
 
+const (
+	maxMemoryMB = 2048 // 2 GB — hard ceiling for coding agent sessions
+	maxCPUQuota = 200  // 2 cores — hard ceiling
+)
+
 // ResourcePolicy defines default resource limits applied to every session container.
 type ResourcePolicy struct {
 	MemoryMB int // memory limit in megabytes (default: 512)
@@ -36,6 +41,9 @@ func PolicyFromEnv() (ResourcePolicy, error) {
 		if n <= 0 {
 			return p, fmt.Errorf("ZYNQEL_SESSION_MEMORY_MB must be positive, got %d", n)
 		}
+		if n > maxMemoryMB {
+			return p, fmt.Errorf("ZYNQEL_SESSION_MEMORY_MB=%d exceeds max %d", n, maxMemoryMB)
+		}
 		p.MemoryMB = n
 	}
 
@@ -46,6 +54,9 @@ func PolicyFromEnv() (ResourcePolicy, error) {
 		}
 		if n <= 0 {
 			return p, fmt.Errorf("ZYNQEL_SESSION_CPU_QUOTA must be positive, got %d", n)
+		}
+		if n > maxCPUQuota {
+			return p, fmt.Errorf("ZYNQEL_SESSION_CPU_QUOTA=%d exceeds max %d", n, maxCPUQuota)
 		}
 		p.CPUQuota = n
 	}
