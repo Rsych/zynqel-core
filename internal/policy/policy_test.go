@@ -28,9 +28,9 @@ func TestNanoCPUs(t *testing.T) {
 		quota int
 		want  int64
 	}{
-		{100, 1e9},  // 1 core
-		{50, 5e8},   // half core
-		{200, 2e9},  // 2 cores
+		{100, 1e9}, // 1 core
+		{50, 5e8},  // half core
+		{200, 2e9}, // 2 cores
 	}
 	for _, tt := range tests {
 		p := ResourcePolicy{CPUQuota: tt.quota}
