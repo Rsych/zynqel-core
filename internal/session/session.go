@@ -1,6 +1,11 @@
 package session
 
-import "time"
+import (
+	"time"
+
+	"github.com/Rsych/zynqel-core/internal/adapter"
+	"github.com/Rsych/zynqel-core/internal/sandbox"
+)
 
 // Status represents the lifecycle state of a session.
 // Using a named type (not raw string) gives us type safety —
@@ -18,7 +23,7 @@ const (
 // Think of it as the "desired state" for a session.
 // The actual running state lives in Session.
 type SessionSpec struct {
-	Agent   string            `json:"agent"` // e.g. "claude", "cursor"
+	Agent   string            `json:"agent"` // e.g. "claude", "cursor", "shell"
 	RepoURL string            `json:"repo_url,omitempty"`
 	Branch  string            `json:"branch,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
@@ -35,4 +40,8 @@ type Session struct {
 	CreatedAt   time.Time   `json:"created_at"`
 	StoppedAt   *time.Time  `json:"stopped_at,omitempty"`
 	Error       string      `json:"error,omitempty"`
+
+	// Unexported — managed by session.Manager, not serialized.
+	adapter    adapter.AgentAdapter // nil for bare shell sessions
+	adapterPTY sandbox.PTYConn      // PTY from adapter's exec, nil for shell
 }
