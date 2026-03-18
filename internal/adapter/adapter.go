@@ -9,6 +9,9 @@ import (
 
 // AgentAdapter launches and manages an agent CLI inside a container.
 type AgentAdapter interface {
+	// Image returns the Docker image required for this agent.
+	Image() string
+
 	// Start launches the agent process inside the container.
 	// Returns a PTYConn connected to the agent's stdin/stdout.
 	Start(ctx context.Context, containerID string) (sandbox.PTYConn, error)
