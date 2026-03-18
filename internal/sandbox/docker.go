@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 
+	"github.com/Rsych/zynqel-core/internal/shortid"
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -16,14 +17,6 @@ import (
 
 type DockerSandbox struct {
 	cli *client.Client
-}
-
-// shortID returns a truncated container ID for log messages.
-func shortID(id string) string {
-	if len(id) > 12 {
-		return shortID(id)
-	}
-	return id
 }
 
 func NewDockerSandbox() (*DockerSandbox, error) {
@@ -99,7 +92,7 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 
 func (d *DockerSandbox) Start(ctx context.Context, id string) error {
 	if err := d.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
-		return fmt.Errorf("start container %s: %w", shortID(id), err)
+		return fmt.Errorf("start container %s: %w", shortid.Format(id), err)
 	}
 	return nil
 }
@@ -108,7 +101,7 @@ func (d *DockerSandbox) Stop(ctx context.Context, id string) error {
 	timeout := 10
 	stopOpts := container.StopOptions{Timeout: &timeout}
 	if err := d.cli.ContainerStop(ctx, id, stopOpts); err != nil {
-		return fmt.Errorf("stop container %s: %w", shortID(id), err)
+		return fmt.Errorf("stop container %s: %w", shortid.Format(id), err)
 	}
 	return nil
 }
@@ -116,7 +109,7 @@ func (d *DockerSandbox) Stop(ctx context.Context, id string) error {
 func (d *DockerSandbox) Remove(ctx context.Context, id string) error {
 	opts := container.RemoveOptions{Force: true}
 	if err := d.cli.ContainerRemove(ctx, id, opts); err != nil {
-		return fmt.Errorf("remove container %s: %w", shortID(id), err)
+		return fmt.Errorf("remove container %s: %w", shortid.Format(id), err)
 	}
 	return nil
 }
@@ -136,7 +129,7 @@ func (d *DockerSandbox) Sweep(ctx context.Context) (int, error) {
 	removed := 0
 	for _, c := range containers {
 		if err := d.cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil {
-			log.Printf("warning: failed to remove orphan container %s: %v", shortID(c.ID), err)
+			log.Printf("warning: failed to remove orphan container %s: %v", shortid.Format(c.ID), err)
 			continue
 		}
 		removed++
@@ -154,7 +147,7 @@ func (d *DockerSandbox) Attach(ctx context.Context, id string) (PTYConn, error) 
 		Stderr: true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("attach container %s: %w", shortID(id), err)
+		return nil, fmt.Errorf("attach container %s: %w", shortid.Format(id), err)
 	}
 	return &dockerPTYConn{resp: resp}, nil
 }

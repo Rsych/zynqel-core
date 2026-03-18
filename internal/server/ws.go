@@ -138,6 +138,12 @@ func sendWSJSON(conn *websocket.Conn, mu *sync.Mutex, msgType string, data strin
 func writeWSError(conn *websocket.Conn, message string) {
 	raw, _ := json.Marshal(message)
 	msg := wsMessage{Type: "error", Data: raw}
-	payload, _ := json.Marshal(msg)
-	_ = conn.WriteMessage(websocket.TextMessage, payload)
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal ws error message: %v", err)
+		return
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		log.Printf("failed to send ws error message: %v", err)
+	}
 }
