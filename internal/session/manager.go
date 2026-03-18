@@ -11,6 +11,7 @@ import (
 
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
+	"github.com/Rsych/zynqel-core/internal/shortid"
 )
 
 const defaultImage = "ubuntu:22.04"
@@ -57,7 +58,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 
 	if err := m.sandbox.Start(ctx, containerID); err != nil {
 		if rmErr := m.sandbox.Remove(ctx, containerID); rmErr != nil {
-			log.Printf("failed to remove container %s after start failure: %v", containerID[:12], rmErr)
+			log.Printf("failed to remove container %s after start failure: %v", shortid.Format(containerID), rmErr)
 		}
 		return nil, fmt.Errorf("start sandbox: %w", err)
 	}
@@ -110,13 +111,29 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	m.mu.Unlock()
 
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to stop container %s: %v", s.ContainerID[:12], err)
+		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
 	}
 	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to remove container %s: %v", s.ContainerID[:12], err)
+		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
 	}
 
 	return nil
+}
+
+// Attach returns a PTY connection to the container for the given session.
+func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	if s.Status != StatusRunning {
+		return nil, fmt.Errorf("session %s is not running", id)
+	}
+
+	return m.sandbox.Attach(ctx, s.ContainerID)
 }
 
 func generateID() (string, error) {

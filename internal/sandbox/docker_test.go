@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Rsych/zynqel-core/internal/shortid"
 	"github.com/docker/docker/client"
 )
 
@@ -47,7 +48,7 @@ func TestDockerSandbox_FullLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	t.Logf("created container: %s", containerID[:12])
+	t.Logf("created container: %s", shortid.Format(containerID))
 	defer func() { _ = sb.Remove(ctx, containerID) }()
 
 	// Verify container exists but not started
@@ -235,7 +236,7 @@ func TestDockerSandbox_Sweep(t *testing.T) {
 	for _, id := range ids {
 		_, err := cli.ContainerInspect(ctx, id)
 		if err == nil {
-			t.Errorf("container %s should not exist after Sweep", id[:12])
+			t.Errorf("container %s should not exist after Sweep", shortid.Format(id))
 		}
 	}
 }

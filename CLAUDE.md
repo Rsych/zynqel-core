@@ -13,6 +13,23 @@ go test ./...                           # Run all tests
 go vet ./...                            # Static analysis
 ```
 
+### Pre-push CI check — ALWAYS run before committing/pushing
+
+Run the same checks as GitHub Actions CI to catch failures early:
+
+```bash
+gofmt -s -l .                                           # Format check (should print nothing)
+go vet ./...                                            # Static analysis
+$(go env GOPATH)/bin/golangci-lint run ./...             # Lint (golangci-lint v2.11.3)
+go test -race ./...                                     # Tests with race detector
+go build ./...                                          # Build
+```
+
+Install golangci-lint if missing:
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3
+```
+
 ## Code Conventions
 
 - **Go 1.22+** — use standard library where possible
