@@ -9,6 +9,8 @@ import (
 	"github.com/Rsych/zynqel-core/internal/shortid"
 )
 
+const claudeImage = "zynqel-claude:latest"
+
 // ClaudeAdapter launches the Claude CLI inside a container.
 type ClaudeAdapter struct {
 	sb   sandbox.Sandbox
@@ -19,6 +21,11 @@ type ClaudeAdapter struct {
 // NewClaudeAdapter creates a new ClaudeAdapter.
 func NewClaudeAdapter(sb sandbox.Sandbox) *ClaudeAdapter {
 	return &ClaudeAdapter{sb: sb}
+}
+
+// Image returns the Docker image with Claude Code pre-installed.
+func (a *ClaudeAdapter) Image() string {
+	return claudeImage
 }
 
 // Start launches the Claude CLI via docker exec with a PTY.

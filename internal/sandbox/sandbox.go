@@ -35,6 +35,7 @@ type PTYConn interface {
 // container config.
 type Spec struct {
 	Image       string            // Docker image to run
+	Cmd         []string          // Command to run (nil = use image default)
 	Env         map[string]string // Environment variables
 	Labels      map[string]string // Container labels for identification
 	MemoryBytes int64             // Memory limit in bytes (0 = no limit)

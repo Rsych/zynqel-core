@@ -71,7 +71,7 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 		Labels:    labels,
 		Tty:       true,
 		OpenStdin: true,
-		Cmd:       []string{"/bin/sh"},
+		Cmd:       spec.Cmd, // nil = use image CMD
 	}
 
 	hostConfig := &container.HostConfig{}

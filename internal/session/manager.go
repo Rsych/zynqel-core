@@ -48,8 +48,20 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		spec.Env = make(map[string]string)
 	}
 
+	// Use the adapter's image if one is configured, otherwise default shell.
+	img := defaultImage
+	var cmd []string
+	if agentAdapter != nil {
+		img = agentAdapter.Image()
+		// Adapter sessions use the image's default CMD (e.g. sleep infinity).
+		// The agent runs via Exec after the container is up.
+	} else {
+		cmd = []string{"/bin/sh"}
+	}
+
 	sbSpec := sandbox.Spec{
-		Image: defaultImage,
+		Image: img,
+		Cmd:   cmd,
 		Env:   spec.Env,
 		Labels: map[string]string{
 			"zynqel.session-id": id,
