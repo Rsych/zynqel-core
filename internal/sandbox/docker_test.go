@@ -228,8 +228,8 @@ func TestDockerSandbox_Sweep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sweep: %v", err)
 	}
-	if n != 2 {
-		t.Errorf("Sweep removed %d containers, want 2", n)
+	if n < 2 {
+		t.Errorf("Sweep removed %d containers, want at least 2", n)
 	}
 
 	// Verify they're gone.

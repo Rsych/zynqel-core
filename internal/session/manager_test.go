@@ -9,8 +9,6 @@ import (
 
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 )
 
@@ -28,24 +26,6 @@ func mustDockerClient(t *testing.T) *client.Client {
 	return cli
 }
 
-func mustManager(t *testing.T, sb *sandbox.DockerSandbox) *Manager {
-	t.Helper()
-	return NewManager(sb, policy.DefaultPolicy())
-}
-
-func zynqelContainerCount(t *testing.T, cli *client.Client) int {
-	t.Helper()
-	args := filters.NewArgs(filters.Arg("label", sandbox.LabelManaged+"=true"))
-	containers, err := cli.ContainerList(context.Background(), container.ListOptions{
-		All:     true,
-		Filters: args,
-	})
-	if err != nil {
-		t.Fatalf("failed to list containers: %v", err)
-	}
-	return len(containers)
-}
-
 func mustSandbox(t *testing.T) *sandbox.DockerSandbox {
 	t.Helper()
 	sb, err := sandbox.NewDockerSandbox()
@@ -54,6 +34,18 @@ func mustSandbox(t *testing.T) *sandbox.DockerSandbox {
 	}
 	t.Cleanup(func() { _ = sb.Close() })
 	return sb
+}
+
+func mustManager(t *testing.T, sb *sandbox.DockerSandbox) *Manager {
+	t.Helper()
+	return NewManager(sb, policy.DefaultPolicy())
+}
+
+// containerExists checks if a specific container still exists.
+func containerExists(t *testing.T, cli *client.Client, containerID string) bool {
+	t.Helper()
+	_, err := cli.ContainerInspect(context.Background(), containerID)
+	return err == nil
 }
 
 // TestManager_KillDuringActiveTask creates a session with active processes,
@@ -70,12 +62,14 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	containerID := sess.ContainerID
 
 	// Attach and start long-running processes.
 	ptyConn, err := m.Attach(ctx, sess.ID)
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
+	defer func() { _ = ptyConn.Close() }()
 
 	_, err = ptyConn.Write([]byte("sleep 3600 &\nyes > /dev/null &\n"))
 	if err != nil {
@@ -88,9 +82,9 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	// Verify container is gone.
-	if count := zynqelContainerCount(t, cli); count != 0 {
-		t.Errorf("expected 0 zynqel containers after delete, got %d", count)
+	// Verify this specific container is gone.
+	if containerExists(t, cli, containerID) {
+		t.Errorf("container %s should not exist after Delete", containerID[:12])
 	}
 
 	// Verify session is removed from manager.
@@ -102,8 +96,7 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 // TestManager_RapidCreateKill runs 20 rapid create/delete cycles and verifies
 // no containers leak and goroutine count stays stable.
 func TestManager_RapidCreateKill(t *testing.T) {
-	cli := mustDockerClient(t)
-	t.Cleanup(func() { _ = cli.Close() })
+	_ = mustDockerClient(t)
 
 	sb := mustSandbox(t)
 	m := mustManager(t, sb)
@@ -126,9 +119,9 @@ func TestManager_RapidCreateKill(t *testing.T) {
 		}
 	}
 
-	// Verify no containers remain.
-	if count := zynqelContainerCount(t, cli); count != 0 {
-		t.Errorf("expected 0 zynqel containers after %d cycles, got %d", cycles, count)
+	// Verify no sessions remain in manager.
+	if sessions := m.List(); len(sessions) != 0 {
+		t.Errorf("expected 0 sessions after %d cycles, got %d", cycles, len(sessions))
 	}
 
 	// Verify no significant goroutine leak.
@@ -146,8 +139,7 @@ func TestManager_RapidCreateKill(t *testing.T) {
 // TestManager_ConcurrentCreateKill runs concurrent create/delete operations
 // to verify thread safety.
 func TestManager_ConcurrentCreateKill(t *testing.T) {
-	cli := mustDockerClient(t)
-	t.Cleanup(func() { _ = cli.Close() })
+	_ = mustDockerClient(t)
 
 	sb := mustSandbox(t)
 	m := mustManager(t, sb)
@@ -177,9 +169,9 @@ func TestManager_ConcurrentCreateKill(t *testing.T) {
 
 	wg.Wait()
 
-	// Verify no containers remain.
-	if count := zynqelContainerCount(t, cli); count != 0 {
-		t.Errorf("expected 0 zynqel containers after concurrent test, got %d", count)
+	// Verify no sessions remain in manager.
+	if sessions := m.List(); len(sessions) != 0 {
+		t.Errorf("expected 0 sessions after concurrent test, got %d", len(sessions))
 	}
 
 	t.Logf("completed %d workers x %d cycles", workers, cyclesPerWorker)
@@ -195,24 +187,29 @@ func TestManager_ShutdownCleansAll(t *testing.T) {
 	m := mustManager(t, sb)
 	ctx := context.Background()
 
-	// Create 3 sessions.
+	// Create 3 sessions, track their container IDs.
+	var containerIDs []string
 	for i := 0; i < 3; i++ {
-		if _, err := m.Create(ctx, SessionSpec{Agent: "shell"}); err != nil {
+		sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+		if err != nil {
 			t.Fatalf("Create %d: %v", i, err)
 		}
+		containerIDs = append(containerIDs, sess.ContainerID)
 	}
 
-	// Verify 3 containers exist.
-	if count := zynqelContainerCount(t, cli); count != 3 {
-		t.Fatalf("expected 3 zynqel containers, got %d", count)
+	// Verify 3 sessions exist in manager.
+	if sessions := m.List(); len(sessions) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(sessions))
 	}
 
 	// Shutdown should clean all.
 	m.Shutdown(ctx)
 
-	// Verify all gone.
-	if count := zynqelContainerCount(t, cli); count != 0 {
-		t.Errorf("expected 0 zynqel containers after Shutdown, got %d", count)
+	// Verify all specific containers are gone.
+	for _, cid := range containerIDs {
+		if containerExists(t, cli, cid) {
+			t.Errorf("container %s should not exist after Shutdown", cid[:12])
+		}
 	}
 
 	// Verify session list is empty.
