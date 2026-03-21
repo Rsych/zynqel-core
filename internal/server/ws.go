@@ -130,6 +130,18 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				log.Printf("pty write error for session %s: %v", id, err)
 				return
 			}
+		case "pty.resize":
+			var size struct {
+				Cols int `json:"cols"`
+				Rows int `json:"rows"`
+			}
+			if err := json.Unmarshal(msg.Data, &size); err != nil {
+				log.Printf("invalid pty.resize data: %v", err)
+				continue
+			}
+			if size.Cols > 0 && size.Rows > 0 {
+				s.sessions.Resize(id, size.Cols, size.Rows)
+			}
 		case "intercept.response":
 			var resp interceptResponse
 			if err := json.Unmarshal(msg.Data, &resp); err != nil {

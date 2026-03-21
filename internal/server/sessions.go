@@ -30,7 +30,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("error creating session: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create session")
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -68,6 +68,28 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent) // 204 — success, no body
+}
+
+// handleListWorkspaces returns all saved workspace volumes.
+func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	workspaces, err := s.sessions.ListWorkspaces(r.Context())
+	if err != nil {
+		log.Printf("error listing workspaces: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaces)
+}
+
+// handleDeleteWorkspace removes a saved workspace volume.
+func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.sessions.DeleteWorkspace(r.Context(), id); err != nil {
+		log.Printf("error deleting workspace %s: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // writeJSON is a helper to send JSON responses.

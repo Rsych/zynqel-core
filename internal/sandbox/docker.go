@@ -12,6 +12,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 )
 
@@ -79,6 +81,22 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 		hostConfig.Resources = container.Resources{
 			Memory:   spec.MemoryBytes,
 			NanoCPUs: spec.NanoCPUs,
+		}
+	}
+	if spec.VolumeName != "" {
+		// Ensure volume exists with labels (no-op if already exists).
+		if _, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
+			Name:   spec.VolumeName,
+			Labels: spec.VolumeLabels,
+		}); err != nil {
+			return "", fmt.Errorf("create volume %s: %w", spec.VolumeName, err)
+		}
+		hostConfig.Mounts = []mount.Mount{
+			{
+				Type:   mount.TypeVolume,
+				Source: spec.VolumeName,
+				Target: "/workspace",
+			},
 		}
 	}
 
@@ -230,6 +248,63 @@ func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([
 	}
 
 	return output, nil
+}
+
+// Commit saves the current container state as a new image.
+// The image can be used to resume the workspace with all installed packages.
+func (d *DockerSandbox) Commit(ctx context.Context, containerID, imageName string) error {
+	resp, err := d.cli.ContainerCommit(ctx, containerID, container.CommitOptions{
+		Reference: imageName,
+		Comment:   "zynqel workspace snapshot",
+		Pause:     true,
+	})
+	if err != nil {
+		return fmt.Errorf("commit container %s: %w", shortid.Format(containerID), err)
+	}
+	log.Printf("committed container %s as %s (sha: %s)", shortid.Format(containerID), imageName, shortid.Format(resp.ID))
+	return nil
+}
+
+// ImageExists checks if a Docker image exists locally.
+func (d *DockerSandbox) ImageExists(ctx context.Context, imageName string) bool {
+	_, err := d.cli.ImageInspect(ctx, imageName)
+	return err == nil
+}
+
+// ListVolumes returns all Docker volumes matching the given name prefix.
+func (d *DockerSandbox) ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error) {
+	resp, err := d.cli.VolumeList(ctx, volume.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("name", prefix)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list volumes: %w", err)
+	}
+	var vols []VolumeInfo
+	for _, v := range resp.Volumes {
+		vols = append(vols, VolumeInfo{
+			Name:      v.Name,
+			CreatedAt: v.CreatedAt,
+			Image:     v.Labels["zynqel.image"],
+			Agent:     v.Labels["zynqel.agent"],
+		})
+	}
+	return vols, nil
+}
+
+// RemoveVolume removes a Docker volume by name.
+func (d *DockerSandbox) RemoveVolume(ctx context.Context, name string) error {
+	return d.cli.VolumeRemove(ctx, name, true)
+}
+
+// Resize changes the TTY dimensions of a running container.
+func (d *DockerSandbox) Resize(ctx context.Context, id string, cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return nil
+	}
+	return d.cli.ContainerResize(ctx, id, container.ResizeOptions{
+		Width:  uint(cols),
+		Height: uint(rows),
+	})
 }
 
 func (d *DockerSandbox) Close() error {

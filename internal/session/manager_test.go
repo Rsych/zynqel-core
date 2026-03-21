@@ -36,6 +36,13 @@ func mustSandbox(t *testing.T) *sandbox.DockerSandbox {
 	return sb
 }
 
+// testImage is a publicly available image for CI (zynqel-base is local only).
+const testImage = "ubuntu:22.04"
+
+func testSpec() SessionSpec {
+	return SessionSpec{Agent: "shell", Image: testImage}
+}
+
 func mustManager(t *testing.T, sb *sandbox.DockerSandbox) *Manager {
 	t.Helper()
 	p := policy.DefaultPolicy()
@@ -88,7 +95,7 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 	m := mustManager(t, sb)
 	ctx := context.Background()
 
-	sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+	sess, err := m.Create(ctx, testSpec())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -134,7 +141,7 @@ func TestManager_RapidCreateKill(t *testing.T) {
 	const cycles = 20
 
 	for i := 0; i < cycles; i++ {
-		sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+		sess, err := m.Create(ctx, testSpec())
 		if err != nil {
 			t.Fatalf("cycle %d: Create: %v", i, err)
 		}
@@ -178,7 +185,7 @@ func TestManager_ConcurrentCreateKill(t *testing.T) {
 		go func(worker int) {
 			defer wg.Done()
 			for j := 0; j < cyclesPerWorker; j++ {
-				sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+				sess, err := m.Create(ctx, testSpec())
 				if err != nil {
 					t.Errorf("worker %d cycle %d: Create: %v", worker, j, err)
 					return
@@ -214,7 +221,7 @@ func TestManager_ShutdownCleansAll(t *testing.T) {
 	// Create 3 sessions, track their container IDs.
 	var containerIDs []string
 	for i := 0; i < 3; i++ {
-		sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+		sess, err := m.Create(ctx, testSpec())
 		if err != nil {
 			t.Fatalf("Create %d: %v", i, err)
 		}
@@ -268,7 +275,7 @@ func TestStability_ConcurrentSustainedSessions(t *testing.T) {
 	sessions := make([]sessionInfo, numSessions)
 
 	for i := 0; i < numSessions; i++ {
-		sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+		sess, err := m.Create(ctx, testSpec())
 		if err != nil {
 			t.Fatalf("Create %d: %v", i, err)
 		}
@@ -354,7 +361,7 @@ func TestStability_SubscribeUnsubscribeCycles(t *testing.T) {
 	m := mustManager(t, sb)
 	ctx := context.Background()
 
-	sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+	sess, err := m.Create(ctx, testSpec())
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -399,7 +406,7 @@ func TestStability_SessionsWithWriteInput(t *testing.T) {
 
 	var sessionIDs []string
 	for i := 0; i < numSessions; i++ {
-		sess, err := m.Create(ctx, SessionSpec{Agent: "shell"})
+		sess, err := m.Create(ctx, testSpec())
 		if err != nil {
 			t.Fatalf("Create %d: %v", i, err)
 		}

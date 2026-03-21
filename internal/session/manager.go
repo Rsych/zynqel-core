@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,9 +18,14 @@ import (
 	"github.com/Rsych/zynqel-core/internal/shortid"
 )
 
-const defaultImage = "ubuntu:22.04"
+const defaultImage = "zynqel-base:latest"
 
 const idleCheckInterval = 30 * time.Second
+
+const volumePrefix = "zynqel-ws-"
+
+// validWorkspaceID matches lowercase alphanumeric, hyphens, underscores.
+var validWorkspaceID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // ErrAtCapacity is returned when the maximum number of concurrent sessions is reached.
 var ErrAtCapacity = errors.New("session capacity exceeded")
@@ -48,15 +55,22 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
-	// Check capacity before doing any expensive work.
-	if m.policy.MaxSessions > 0 {
-		m.mu.RLock()
-		count := len(m.sessions)
-		m.mu.RUnlock()
-		if count >= m.policy.MaxSessions {
-			return nil, fmt.Errorf("at capacity (%d/%d): %w", count, m.policy.MaxSessions, ErrAtCapacity)
+	// Check for existing workspace session AND capacity under a single lock
+	// to prevent races where two requests create duplicate sessions.
+	m.mu.RLock()
+	if spec.WorkspaceID != "" {
+		for _, s := range m.sessions {
+			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusRunning {
+				m.mu.RUnlock()
+				return s, nil
+			}
 		}
 	}
+	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
+		m.mu.RUnlock()
+		return nil, fmt.Errorf("at capacity (%d/%d): %w", len(m.sessions), m.policy.MaxSessions, ErrAtCapacity)
+	}
+	m.mu.RUnlock()
 
 	// Validate agent and create adapter (nil for bare shell).
 	agentAdapter, err := adapter.New(spec.Agent, m.sandbox)
@@ -68,16 +82,37 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		spec.Env = make(map[string]string)
 	}
 
-	// Use the adapter's image if one is configured, otherwise default shell.
+	// Image priority: spec.Image (explicit) > committed workspace > adapter > default
 	img := defaultImage
 	var cmd []string
 	if agentAdapter != nil {
 		img = agentAdapter.Image()
-		// Adapter sessions use the image's default CMD (e.g. sleep infinity).
-		// The agent runs via Exec after the container is up.
 	} else {
-		cmd = []string{"/bin/sh"}
+		cmd = []string{"/bin/bash"}
 	}
+
+	// Use committed workspace image if exists (preserves installed packages).
+	committedImage := volumePrefix + spec.WorkspaceID + ":latest"
+	if m.sandbox.ImageExists(ctx, committedImage) {
+		img = committedImage
+		log.Printf("using committed workspace image %s", committedImage)
+	}
+
+	// Explicit spec.Image always wins (user intent).
+	if spec.Image != "" {
+		img = spec.Image
+	}
+
+	// All sessions are persistent — auto-generate workspace ID if not provided.
+	if spec.WorkspaceID == "" {
+		spec.WorkspaceID = id[:8]
+	}
+	// Normalize: lowercase, replace invalid chars.
+	spec.WorkspaceID = strings.ToLower(spec.WorkspaceID)
+	if !validWorkspaceID.MatchString(spec.WorkspaceID) {
+		return nil, fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", spec.WorkspaceID)
+	}
+	volumeName := volumePrefix + spec.WorkspaceID
 
 	sbSpec := sandbox.Spec{
 		Image: img,
@@ -88,6 +123,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		},
 		MemoryBytes: m.policy.MemoryBytes(),
 		NanoCPUs:    m.policy.NanoCPUs(),
+		VolumeName:  volumeName,
+		VolumeLabels: map[string]string{
+			"zynqel.managed": "true",
+			"zynqel.image":   img,
+			"zynqel.agent":   spec.Agent,
+		},
 	}
 
 	containerID, err := m.sandbox.Create(ctx, sbSpec)
@@ -146,12 +187,23 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity)
 
 	m.mu.Lock()
-	// Recheck capacity under write lock to handle concurrent creates.
+	// Recheck under write lock to handle concurrent creates.
 	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
 		m.mu.Unlock()
-		log.Printf("warning: capacity race — cleaning up container %s created during concurrent request", shortid.Format(s.ContainerID))
+		log.Printf("warning: capacity race — cleaning up container %s", shortid.Format(s.ContainerID))
 		m.cleanupSession(context.Background(), s)
 		return nil, fmt.Errorf("at capacity (race): %w", ErrAtCapacity)
+	}
+	// Recheck workspace — another request may have created it while we were starting.
+	if spec.WorkspaceID != "" {
+		for _, existing := range m.sessions {
+			if existing.Spec.WorkspaceID == spec.WorkspaceID && existing.Status == StatusRunning {
+				m.mu.Unlock()
+				log.Printf("warning: workspace race — cleaning up duplicate container %s", shortid.Format(s.ContainerID))
+				m.cleanupSession(context.Background(), s)
+				return existing, nil
+			}
+		}
 	}
 	m.sessions[id] = s
 	m.mu.Unlock()
@@ -262,6 +314,56 @@ func (m *Manager) WriteInput(id string, data []byte) error {
 	return s.broadcaster.Write(data)
 }
 
+// Resize updates the PTY dimensions for the session's container.
+func (m *Manager) Resize(id string, cols, rows int) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok || s.Status != StatusRunning {
+		return
+	}
+
+	if err := m.sandbox.Resize(context.Background(), s.ContainerID, cols, rows); err != nil {
+		log.Printf("warning: failed to resize session %s: %v", id, err)
+	}
+}
+
+// Workspace represents a saved workspace volume.
+type Workspace struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	Image     string `json:"image,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+}
+
+// ListWorkspaces returns all saved workspace volumes.
+func (m *Manager) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	vols, err := m.sandbox.ListVolumes(ctx, volumePrefix)
+	if err != nil {
+		return nil, err
+	}
+	workspaces := make([]Workspace, 0, len(vols))
+	for _, v := range vols {
+		wsID := strings.TrimPrefix(v.Name, volumePrefix)
+		if wsID == v.Name {
+			continue // not a zynqel workspace volume
+		}
+		workspaces = append(workspaces, Workspace{
+			ID:        wsID,
+			CreatedAt: v.CreatedAt,
+			Image:     v.Image,
+			Agent:     v.Agent,
+		})
+	}
+	return workspaces, nil
+}
+
+// DeleteWorkspace removes a workspace volume.
+func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
+	return m.sandbox.RemoveVolume(ctx, volumePrefix+wsID)
+}
+
 // Shutdown stops and removes all active sessions.
 // Called during server shutdown to clean up containers.
 func (m *Manager) Shutdown(ctx context.Context) {
@@ -290,6 +392,13 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	}
 	if s.broadcaster != nil {
 		s.broadcaster.Close()
+	}
+	// Commit container state as workspace image (preserves installed packages).
+	if s.Spec.WorkspaceID != "" {
+		commitImage := volumePrefix + s.Spec.WorkspaceID + ":latest"
+		if err := m.sandbox.Commit(ctx, s.ContainerID, commitImage); err != nil {
+			log.Printf("warning: failed to commit workspace %s: %v", s.Spec.WorkspaceID, err)
+		}
 	}
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
@@ -354,6 +463,26 @@ func (m *Manager) reapSessions(ctx context.Context) {
 
 // setupWorkspace clones a repo and checks out the specified branch inside the container.
 func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec SessionSpec) error {
+	// If workspace already has a git repo (persistent volume), skip clone.
+	if _, err := m.sandbox.ExecRun(ctx, containerID, []string{"test", "-d", "/workspace/.git"}); err == nil {
+		log.Printf("workspace already populated, skipping clone")
+		if spec.Branch != "" {
+			checkoutCmd := []string{"git", "-C", "/workspace", "checkout", spec.Branch}
+			if _, err := m.sandbox.ExecRun(ctx, containerID, checkoutCmd); err != nil {
+				return fmt.Errorf("git checkout %s: %w", spec.Branch, err)
+			}
+			log.Printf("checked out branch %s", spec.Branch)
+		}
+		return nil
+	}
+
+	// Check if /workspace is non-empty (populated volume but no .git).
+	output, _ := m.sandbox.ExecRun(ctx, containerID, []string{"sh", "-c", "ls -A /workspace | head -1"})
+	if len(output) > 0 {
+		log.Printf("workspace has files but no .git, skipping clone")
+		return nil
+	}
+
 	// Clone the repo into /workspace.
 	cloneCmd := []string{"git", "clone", spec.RepoURL, "/workspace"}
 	if _, err := m.sandbox.ExecRun(ctx, containerID, cloneCmd); err != nil {
