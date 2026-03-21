@@ -298,6 +298,9 @@ func (d *DockerSandbox) RemoveVolume(ctx context.Context, name string) error {
 
 // Resize changes the TTY dimensions of a running container.
 func (d *DockerSandbox) Resize(ctx context.Context, id string, cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return nil
+	}
 	return d.cli.ContainerResize(ctx, id, container.ResizeOptions{
 		Width:  uint(cols),
 		Height: uint(rows),

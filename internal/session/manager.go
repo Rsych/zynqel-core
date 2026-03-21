@@ -459,6 +459,13 @@ func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec S
 		return nil
 	}
 
+	// Check if /workspace is non-empty (populated volume but no .git).
+	output, _ := m.sandbox.ExecRun(ctx, containerID, []string{"sh", "-c", "ls -A /workspace | head -1"})
+	if len(output) > 0 {
+		log.Printf("workspace has files but no .git, skipping clone")
+		return nil
+	}
+
 	// Clone the repo into /workspace.
 	cloneCmd := []string{"git", "clone", spec.RepoURL, "/workspace"}
 	if _, err := m.sandbox.ExecRun(ctx, containerID, cloneCmd); err != nil {
