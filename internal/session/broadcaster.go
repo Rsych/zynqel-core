@@ -1,8 +1,10 @@
 package session
 
 import (
+	"errors"
 	"io"
 	"log"
+	"net"
 	"sync"
 
 	"github.com/Rsych/zynqel-core/internal/intercept"
@@ -135,12 +137,22 @@ func (b *Broadcaster) readLoop() {
 			b.mu.Unlock()
 		}
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && !isClosedConnErr(err) {
 				log.Printf("broadcaster read error: %v", err)
 			}
 			return
 		}
 	}
+}
+
+// isClosedConnErr returns true if the error indicates a closed network connection.
+// This is expected when the PTYConn is closed during cleanup.
+func isClosedConnErr(err error) bool {
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	// Docker socket errors may not wrap net.ErrClosed directly.
+	return errors.Is(err, io.ErrClosedPipe)
 }
 
 // closeAllSubscribers closes all subscriber channels.
