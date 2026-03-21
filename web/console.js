@@ -438,8 +438,8 @@
 
   function toBase64(str) {
     const bytes = new TextEncoder().encode(str);
-    const binary = "";
-    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
     return btoa(binary);
   }
 
