@@ -3,24 +3,24 @@
 (function () {
   "use strict";
 
-  var btnNew = document.getElementById("btn-new");
-  var btnWorkspaces = document.getElementById("btn-workspaces");
-  var btnStop = document.getElementById("btn-stop");
-  var currentWsEl = document.getElementById("current-workspace");
-  var currentWsName = document.getElementById("current-ws-name");
-  var statusEl = document.getElementById("status");
+  const btnNew = document.getElementById("btn-new");
+  const btnWorkspaces = document.getElementById("btn-workspaces");
+  const btnStop = document.getElementById("btn-stop");
+  const currentWsEl = document.getElementById("current-workspace");
+  const currentWsName = document.getElementById("current-ws-name");
+  const statusEl = document.getElementById("status");
 
   // Modal elements
-  var modalOverlay = document.getElementById("modal-overlay");
-  var mAgent = document.getElementById("m-agent");
-  var mRepo = document.getElementById("m-repo");
-  var mBranch = document.getElementById("m-branch");
-  var mWorkspace = document.getElementById("m-workspace");
-  var mCancel = document.getElementById("m-cancel");
-  var mCreate = document.getElementById("m-create");
-  var mError = document.getElementById("m-error");
+  const modalOverlay = document.getElementById("modal-overlay");
+  const mAgent = document.getElementById("m-agent");
+  const mRepo = document.getElementById("m-repo");
+  const mBranch = document.getElementById("m-branch");
+  const mWorkspace = document.getElementById("m-workspace");
+  const mCancel = document.getElementById("m-cancel");
+  const mCreate = document.getElementById("m-create");
+  const mError = document.getElementById("m-error");
 
-  var term = new Terminal({
+  const term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
     scrollback: 5000,
@@ -32,7 +32,7 @@
       selectionBackground: "#22c55e33",
     },
   });
-  var fitAddon = new FitAddon.FitAddon();
+  const fitAddon = new FitAddon.FitAddon();
   term.loadAddon(fitAddon);
   term.open(document.getElementById("terminal-container"));
   fitAddon.fit();
@@ -55,7 +55,7 @@
     }
   });
 
-  var resizeTimer = null;
+  let resizeTimer = null;
   function debouncedFit() {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
@@ -73,10 +73,10 @@
 
   // --- State ---
 
-  var ws = null;
-  var wsGeneration = 0;
-  var currentSessionId = null;
-  var currentWorkspaceId = null;
+  let ws = null;
+  let wsGeneration = 0;
+  let currentSessionId = null;
+  let currentWorkspaceId = null;
 
   // --- Friendly error messages ---
 
@@ -88,7 +88,7 @@
     if (msg.indexOf("could not read Username") !== -1) return "Repository not found or is private. Check the URL.";
     if (msg.indexOf("Repository not found") !== -1) return "Repository not found. Check the URL.";
     // Strip JSON wrapper and binary framing from error messages.
-    var jsonMatch = msg.match(/"error":"([^"]+)"/);
+    const jsonMatch = msg.match(/"error":"([^"]+)"/);
     if (jsonMatch) msg = jsonMatch[1];
     // Clean up Docker exec binary framing bytes.
     msg = msg.replace(/\\u[\da-f]{4}/gi, "").replace(/\\n/g, " ").trim();
@@ -98,7 +98,7 @@
   // --- UI helpers ---
 
   function setStatus(connected, text) {
-    var dot = connected ? "bg-green-500" : "bg-red-500";
+    const dot = connected ? "bg-green-500" : "bg-red-500";
     statusEl.innerHTML = '<span class="inline-block w-2 h-2 rounded-full ' + dot + ' mr-1 align-middle"></span>' + (text || (connected ? "connected" : "disconnected"));
   }
 
@@ -134,9 +134,9 @@
   }
 
   // Animated dots for loading feedback.
-  var loadingInterval = null;
+  let loadingInterval = null;
   function startLoading(prefix) {
-    var dots = 0;
+    let dots = 0;
     term.write("\x1B[32m" + prefix + "\x1B[0m");
     loadingInterval = setInterval(function () {
       term.write(".");
@@ -153,14 +153,14 @@
   function apiUrl(path) { return window.location.origin + path; }
 
   function wsUrl(sessionId) {
-    var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     return proto + "//" + window.location.host + "/sessions/" + sessionId + "/stream";
   }
 
   async function apiFetch(url, opts) {
-    var res = await fetch(url, opts);
+    const res = await fetch(url, opts);
     if (!res.ok) {
-      var body = await res.text();
+      const body = await res.text();
       throw new Error(friendlyError(body));
     }
     return res;
@@ -172,7 +172,7 @@
 
   // --- New workspace modal ---
 
-  var imageConfigs = {
+  const imageConfigs = {
     shell:  { agent: "shell", image: "zynqel-base:latest" },
     claude: { agent: "claude" },
     qwen:   { agent: "shell", image: "zynqel-qwen:latest" },
@@ -197,20 +197,20 @@
   }
 
   mRepo.addEventListener("input", function () {
-    var url = mRepo.value.trim();
+    const url = mRepo.value.trim();
     if (!url) { mWorkspace.value = ""; return; }
     // Handle HTTPS, SSH, and shorthand formats.
-    var match = url.match(/[/:]([^/:]+?)(\.git)?$/);
+    const match = url.match(/[/:]([^/:]+?)(\.git)?$/);
     if (match) mWorkspace.value = match[1].toLowerCase();
   });
 
   async function handleCreate() {
-    var selected = mAgent.value || "shell";
-    var config = Object.assign({}, imageConfigs[selected] || imageConfigs.shell);
+    const selected = mAgent.value || "shell";
+    const config = Object.assign({}, imageConfigs[selected] || imageConfigs.shell);
 
-    var repo = mRepo.value.trim();
-    var branch = mBranch.value.trim();
-    var wsId = mWorkspace.value.trim();
+    const repo = mRepo.value.trim();
+    const branch = mBranch.value.trim();
+    const wsId = mWorkspace.value.trim();
 
     if (repo) config.repo_url = repo;
     if (branch) config.branch = branch;
@@ -222,12 +222,12 @@
     mCreate.textContent = "Creating...";
 
     try {
-      var res = await apiFetch(apiUrl("/sessions"), {
+      const res = await apiFetch(apiUrl("/sessions"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
-      var sess = await res.json();
+      const sess = await res.json();
 
       // Success — close modal and connect.
       closeModal();
@@ -254,56 +254,56 @@
 
   // --- Workspaces panel ---
 
-  var wsOverlay = document.getElementById("ws-overlay");
-  var wsList = document.getElementById("ws-list");
-  var wsCloseBtn = document.getElementById("ws-close");
+  const wsOverlay = document.getElementById("ws-overlay");
+  const wsList = document.getElementById("ws-list");
+  const wsCloseBtn = document.getElementById("ws-close");
 
   async function openWorkspaces() {
     wsOverlay.classList.remove("hidden");
     wsList.innerHTML = '<p class="text-neutral-500 text-sm animate-pulse">Loading workspaces...</p>';
 
     try {
-      var res = await apiFetch(apiUrl("/workspaces"));
-      var workspaces = await res.json();
+      const res = await apiFetch(apiUrl("/workspaces"));
+      const workspaces = await res.json();
 
       if (workspaces.length === 0) {
         wsList.innerHTML = '<p class="text-neutral-500 text-sm">No saved workspaces. Click + New to create one.</p>';
         return;
       }
 
-      var sessRes = await apiFetch(apiUrl("/sessions"));
-      var sessions = await sessRes.json();
-      var runningMap = {};
+      const sessRes = await apiFetch(apiUrl("/sessions"));
+      const sessions = await sessRes.json();
+      const runningMap = {};
       sessions.forEach(function (s) {
         if (s.spec.workspace_id) runningMap[s.spec.workspace_id] = s.id;
       });
 
       wsList.innerHTML = "";
       workspaces.forEach(function (workspace) {
-        var isRunning = !!runningMap[workspace.id];
-        var isCurrent = currentWorkspaceId === workspace.id;
-        var row = document.createElement("div");
+        const isRunning = !!runningMap[workspace.id];
+        const isCurrent = currentWorkspaceId === workspace.id;
+        const row = document.createElement("div");
         row.className = "flex items-center justify-between rounded px-3 py-2 " +
           (isCurrent ? "bg-green-900/20 border border-green-700/30" : "bg-neutral-800 border border-neutral-700");
 
-        var info = document.createElement("div");
-        var agentLabel = workspace.agent ? ' <span class="text-[10px] text-neutral-500">' + workspace.agent + '</span>' : '';
+        const info = document.createElement("div");
+        const agentLabel = workspace.agent ? ' <span class="text-[10px] text-neutral-500">' + workspace.agent + '</span>' : '';
         info.className = "flex items-center gap-2";
         info.innerHTML = '<span class="text-sm text-gray-200 font-mono">' + workspace.id + '</span>' +
           agentLabel +
           (isRunning ? '<span class="text-[10px] bg-green-900/50 text-green-400 border border-green-700/50 rounded px-1">running</span>' : '');
         row.appendChild(info);
 
-        var actions = document.createElement("div");
+        const actions = document.createElement("div");
         actions.className = "flex gap-2";
 
         if (isCurrent) {
-          var currentBadge = document.createElement("span");
+          const currentBadge = document.createElement("span");
           currentBadge.textContent = "Current";
           currentBadge.className = "bg-green-900/50 text-green-400 border border-green-700/50 rounded px-3 py-1 text-xs";
           actions.appendChild(currentBadge);
         } else {
-          var openBtn = document.createElement("button");
+          const openBtn = document.createElement("button");
           openBtn.textContent = isRunning ? "Connect" : "Open";
           openBtn.className = "bg-green-900/50 hover:bg-green-800/60 border border-green-700/50 rounded px-3 py-1 text-xs text-green-400";
           openBtn.addEventListener("click", function () {
@@ -314,7 +314,7 @@
         }
 
         if (isRunning) {
-          var stopBtn = document.createElement("button");
+          const stopBtn = document.createElement("button");
           stopBtn.textContent = "Stop";
           stopBtn.className = "bg-red-900/30 hover:bg-red-800/40 border border-red-700/40 rounded px-3 py-1 text-xs text-red-400";
           stopBtn.addEventListener("click", async function () {
@@ -333,7 +333,7 @@
           actions.appendChild(stopBtn);
         }
 
-        var deleteBtn = document.createElement("button");
+        const deleteBtn = document.createElement("button");
         deleteBtn.textContent = "Delete";
         deleteBtn.className = "bg-neutral-700/50 hover:bg-neutral-600/50 border border-neutral-600 rounded px-3 py-1 text-xs text-neutral-400";
         deleteBtn.addEventListener("click", async function () {
@@ -367,14 +367,14 @@
     startLoading("> Opening " + wsId);
 
     try {
-      var config = { agent: agent || "shell", workspace_id: wsId };
+      const config = { agent: agent || "shell", workspace_id: wsId };
       if (image) config.image = image;
-      var res = await apiFetch(apiUrl("/sessions"), {
+      const res = await apiFetch(apiUrl("/sessions"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
-      var sess = await res.json();
+      const sess = await res.json();
       stopLoading();
       term.writeln(" ready!");
       term.writeln("");
@@ -393,16 +393,16 @@
     term.focus();
   }
 
-  var wsDeleteAll = document.getElementById("ws-delete-all");
+  const wsDeleteAll = document.getElementById("ws-delete-all");
 
   wsDeleteAll.addEventListener("click", async function () {
     if (!confirm("Delete ALL workspaces? This cannot be undone.")) return;
     try {
-      var res = await apiFetch(apiUrl("/workspaces"));
-      var workspaces = await res.json();
+      const res = await apiFetch(apiUrl("/workspaces"));
+      const workspaces = await res.json();
       // Kill running sessions first.
-      var sessRes = await apiFetch(apiUrl("/sessions"));
-      var sessions = await sessRes.json();
+      const sessRes = await apiFetch(apiUrl("/sessions"));
+      const sessions = await sessRes.json();
       for (var i = 0; i < sessions.length; i++) {
         await killSession(sessions[i].id);
       }
@@ -427,8 +427,8 @@
 
   function decodeBase64(b64) {
     try {
-      var raw = atob(b64);
-      var buf = new Uint8Array(raw.length);
+      const raw = atob(b64);
+      const buf = new Uint8Array(raw.length);
       for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
       return buf;
     } catch (e) {
@@ -437,8 +437,8 @@
   }
 
   function toBase64(str) {
-    var bytes = new TextEncoder().encode(str);
-    var binary = "";
+    const bytes = new TextEncoder().encode(str);
+    const binary = "";
     for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
     return btoa(binary);
   }
@@ -447,10 +447,10 @@
 
   function connectWS(sessionId) {
     disconnectWS();
-    var gen = ++wsGeneration;
+    const gen = ++wsGeneration;
     currentSessionId = sessionId;
 
-    var connectTimeout = setTimeout(function () {
+    const connectTimeout = setTimeout(function () {
       if (gen === wsGeneration && ws && ws.readyState === WebSocket.CONNECTING) {
         ws.close();
         term.writeln("\x1B[31m> Connection timed out. Server may be busy.\x1B[0m");
@@ -476,12 +476,12 @@
 
     ws.onmessage = function (event) {
       if (gen !== wsGeneration) return;
-      var msg;
+      const msg;
       try { msg = JSON.parse(event.data); } catch (e) { return; }
 
       switch (msg.type) {
         case "pty.output":
-          var buf = decodeBase64(msg.data);
+          const buf = decodeBase64(msg.data);
           if (buf) term.write(buf);
           break;
         case "session.state":
@@ -521,22 +521,22 @@
 
   // --- Intercept prompt UI ---
 
-  var promptOverlay = document.getElementById("prompt-overlay");
+  const promptOverlay = document.getElementById("prompt-overlay");
 
   function showPrompt(prompt) {
-    var card = document.createElement("div");
+    const card = document.createElement("div");
     card.className = "bg-neutral-900 border border-neutral-700 rounded-lg p-3 max-w-sm shadow-lg";
 
-    var text = document.createElement("div");
+    const text = document.createElement("div");
     text.className = "text-sm text-gray-300 mb-2";
     text.textContent = prompt.text || "Confirm?";
     card.appendChild(text);
 
-    var buttons = document.createElement("div");
+    const buttons = document.createElement("div");
     buttons.className = "flex gap-2";
 
     (prompt.options || ["Yes", "No"]).forEach(function (option) {
-      var btn = document.createElement("button");
+      const btn = document.createElement("button");
       btn.textContent = option;
       btn.className = option === "Yes"
         ? "bg-green-900/50 hover:bg-green-800/60 border border-green-700/50 rounded px-4 py-1 text-sm text-green-400"
