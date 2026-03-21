@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 )
 
@@ -240,6 +241,29 @@ func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([
 	}
 
 	return output, nil
+}
+
+// ListVolumes returns all Docker volumes matching the given name prefix.
+func (d *DockerSandbox) ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error) {
+	resp, err := d.cli.VolumeList(ctx, volume.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("name", prefix)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list volumes: %w", err)
+	}
+	var vols []VolumeInfo
+	for _, v := range resp.Volumes {
+		vols = append(vols, VolumeInfo{
+			Name:      v.Name,
+			CreatedAt: v.CreatedAt,
+		})
+	}
+	return vols, nil
+}
+
+// RemoveVolume removes a Docker volume by name.
+func (d *DockerSandbox) RemoveVolume(ctx context.Context, name string) error {
+	return d.cli.VolumeRemove(ctx, name, true)
 }
 
 // Resize changes the TTY dimensions of a running container.

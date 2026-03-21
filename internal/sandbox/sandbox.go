@@ -22,6 +22,14 @@ type Sandbox interface {
 	Exec(ctx context.Context, id string, cmd []string) (PTYConn, error)
 	ExecRun(ctx context.Context, id string, cmd []string) ([]byte, error)
 	Resize(ctx context.Context, id string, cols, rows int) error
+	ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error)
+	RemoveVolume(ctx context.Context, name string) error
+}
+
+// VolumeInfo describes a Docker volume.
+type VolumeInfo struct {
+	Name      string
+	CreatedAt string
 }
 
 // PTYConn is a bidirectional connection to a container's PTY.

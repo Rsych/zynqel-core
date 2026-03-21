@@ -16,7 +16,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/shortid"
 )
 
-const defaultImage = "ubuntu:22.04"
+const defaultImage = "zynqel-base:latest"
 
 const idleCheckInterval = 30 * time.Second
 
@@ -48,6 +48,18 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
+	// If a session with this workspace_id is already running, return it.
+	if spec.WorkspaceID != "" {
+		m.mu.RLock()
+		for _, s := range m.sessions {
+			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusRunning {
+				m.mu.RUnlock()
+				return s, nil
+			}
+		}
+		m.mu.RUnlock()
+	}
+
 	// Check capacity before doing any expensive work.
 	if m.policy.MaxSessions > 0 {
 		m.mu.RLock()
@@ -74,17 +86,17 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	if agentAdapter != nil {
 		img = agentAdapter.Image()
 	} else {
-		cmd = []string{"/bin/sh"}
+		cmd = []string{"/bin/bash"}
 	}
 	if spec.Image != "" {
 		img = spec.Image
 	}
 
-	// Compute volume name for persistent workspaces.
-	var volumeName string
-	if spec.WorkspaceID != "" {
-		volumeName = "zynqel-ws-" + spec.WorkspaceID
+	// All sessions are persistent — auto-generate workspace ID if not provided.
+	if spec.WorkspaceID == "" {
+		spec.WorkspaceID = id[:8]
 	}
+	volumeName := "zynqel-ws-" + spec.WorkspaceID
 
 	sbSpec := sandbox.Spec{
 		Image: img,
@@ -283,6 +295,34 @@ func (m *Manager) Resize(id string, cols, rows int) {
 	if err := m.sandbox.Resize(context.Background(), s.ContainerID, cols, rows); err != nil {
 		log.Printf("warning: failed to resize session %s: %v", id, err)
 	}
+}
+
+// Workspace represents a saved workspace volume.
+type Workspace struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+}
+
+// ListWorkspaces returns all saved workspace volumes.
+func (m *Manager) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	vols, err := m.sandbox.ListVolumes(ctx, "zynqel-ws-")
+	if err != nil {
+		return nil, err
+	}
+	workspaces := make([]Workspace, 0, len(vols))
+	for _, v := range vols {
+		wsID := v.Name[len("zynqel-ws-"):]
+		workspaces = append(workspaces, Workspace{
+			ID:        wsID,
+			CreatedAt: v.CreatedAt,
+		})
+	}
+	return workspaces, nil
+}
+
+// DeleteWorkspace removes a workspace volume.
+func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
+	return m.sandbox.RemoveVolume(ctx, "zynqel-ws-"+wsID)
 }
 
 // Shutdown stops and removes all active sessions.

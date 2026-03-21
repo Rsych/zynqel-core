@@ -30,6 +30,8 @@ func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("GET /sessions/{id}", s.handleGetSession)
 	s.router.HandleFunc("DELETE /sessions/{id}", s.handleDeleteSession)
 	s.router.HandleFunc("GET /sessions/{id}/stream", s.handleSessionStream)
+	s.router.HandleFunc("GET /workspaces", s.handleListWorkspaces)
+	s.router.HandleFunc("DELETE /workspaces/{id}", s.handleDeleteWorkspace)
 
 	if webFS != nil {
 		s.router.Handle("GET /console/", http.StripPrefix("/console/", http.FileServer(http.FS(webFS))))

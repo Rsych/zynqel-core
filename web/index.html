@@ -3,50 +3,79 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zynqel Dev Console</title>
+  <title>Zynqel</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
-    #toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #16213e; border-bottom: 1px solid #0f3460; }
-    #toolbar h1 { font-size: 14px; font-weight: 600; color: #a0c4ff; }
-    #toolbar select, #toolbar button { font-size: 13px; padding: 4px 10px; border-radius: 4px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
-    #toolbar button { background: #0f3460; }
-    #toolbar button:hover { background: #1a5276; }
-    #toolbar button.danger { background: #5c1a1a; }
-    #toolbar button.danger:hover { background: #7a2020; }
-    #status { margin-left: auto; font-size: 12px; color: #888; }
-    #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-    #status .dot.connected { background: #4caf50; }
-    #status .dot.disconnected { background: #f44336; }
-    #terminal-container { flex: 1; padding: 4px; position: relative; overflow: hidden; }
-    #prompt-overlay { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
-    .prompt-card { background: #16213e; border: 1px solid #0f3460; border-radius: 6px; padding: 10px 14px; max-width: 400px; }
-    .prompt-card .prompt-text { font-size: 13px; margin-bottom: 8px; color: #e0e0e0; }
-    .prompt-card .prompt-buttons { display: flex; gap: 8px; }
-    .prompt-card .prompt-buttons button { font-size: 13px; padding: 4px 16px; border-radius: 4px; border: 1px solid #0f3460; cursor: pointer; }
-    .prompt-card .prompt-buttons button.yes { background: #1a5276; color: #e0e0e0; }
-    .prompt-card .prompt-buttons button.yes:hover { background: #217dbb; }
-    .prompt-card .prompt-buttons button.no { background: #5c1a1a; color: #e0e0e0; }
-    .prompt-card .prompt-buttons button.no:hover { background: #7a2020; }
+    body { margin: 0; padding: 0; }
+    #terminal-container .xterm { height: 100%; }
   </style>
 </head>
-<body>
-  <div id="toolbar">
-    <h1>Zynqel</h1>
-    <select id="session-select"><option value="">-- select session --</option></select>
-    <select id="image-select">
-      <option value="shell">Shell (ubuntu)</option>
-      <option value="claude">Claude Code</option>
-      <option value="qwen">Qwen Code</option>
-    </select>
-    <button id="btn-create">Create</button>
-    <button id="btn-kill" class="danger">Kill</button>
-    <button id="btn-refresh">Refresh</button>
-    <span id="status"><span class="dot disconnected"></span>disconnected</span>
+<body class="bg-black text-gray-200 h-screen flex flex-col font-mono">
+
+  <!-- Toolbar -->
+  <div class="flex items-center gap-3 px-4 py-2 bg-neutral-900 border-b border-neutral-800 text-sm">
+    <span class="text-green-400 font-bold tracking-wider">ZYNQEL</span>
+    <div class="h-4 w-px bg-neutral-700"></div>
+    <button id="btn-new" class="bg-green-900/50 hover:bg-green-800/50 border border-green-700/50 rounded px-3 py-1 text-green-400 text-xs">+ New</button>
+    <button id="btn-workspaces" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded px-3 py-1 text-blue-400 text-xs">Workspaces</button>
+    <span id="current-workspace" class="text-xs text-neutral-500 hidden">
+      <span class="text-gray-300 font-mono" id="current-ws-name"></span>
+      <button id="btn-stop" class="ml-2 text-red-400 hover:text-red-300">stop</button>
+    </span>
+    <div class="ml-auto flex items-center gap-2">
+      <span id="status" class="text-xs text-neutral-500">
+        <span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1 align-middle"></span>disconnected
+      </span>
+    </div>
   </div>
-  <div id="terminal-container">
-    <div id="prompt-overlay"></div>
+
+  <!-- Terminal -->
+  <div id="terminal-container" class="flex-1 overflow-hidden relative">
+    <div id="prompt-overlay" class="absolute bottom-4 right-4 z-10 flex flex-col gap-2"></div>
+  </div>
+
+  <!-- New Session Modal -->
+  <div id="modal-overlay" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+    <div class="bg-neutral-900 border border-neutral-700 rounded-lg p-6 w-[460px] shadow-2xl">
+      <h2 class="text-green-400 font-bold text-base mb-4 tracking-wide">NEW SESSION</h2>
+
+      <label class="block text-xs text-neutral-500 mb-1 mt-3">AGENT</label>
+      <select id="m-agent" class="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-gray-200">
+        <option value="shell">Shell (ubuntu)</option>
+        <option value="claude">Claude Code</option>
+        <option value="qwen">Qwen Code</option>
+      </select>
+
+      <label class="block text-xs text-neutral-500 mb-1 mt-4">REPOSITORY</label>
+      <input id="m-repo" type="text" placeholder="https://github.com/user/repo.git" class="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-neutral-600">
+      <p class="text-[10px] text-neutral-600 mt-1">Leave empty for a blank workspace</p>
+
+      <label class="block text-xs text-neutral-500 mb-1 mt-4">BRANCH</label>
+      <input id="m-branch" type="text" placeholder="main" class="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-neutral-600">
+
+      <label class="block text-xs text-neutral-500 mb-1 mt-4">WORKSPACE ID</label>
+      <input id="m-workspace" type="text" placeholder="auto-generated from repo" class="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-neutral-600">
+      <p class="text-[10px] text-neutral-600 mt-1">Same ID = resume previous work. Empty = ephemeral session.</p>
+
+      <div class="flex gap-2 mt-6 justify-end">
+        <button id="m-cancel" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded px-4 py-2 text-sm text-gray-400">Cancel</button>
+        <button id="m-create" class="bg-green-900/60 hover:bg-green-800/60 border border-green-700/50 rounded px-4 py-2 text-sm text-green-400 font-semibold">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workspaces Modal -->
+  <div id="ws-overlay" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+    <div class="bg-neutral-900 border border-neutral-700 rounded-lg p-6 w-[500px] shadow-2xl max-h-[70vh] flex flex-col">
+      <h2 class="text-blue-400 font-bold text-base mb-4 tracking-wide">SAVED WORKSPACES</h2>
+      <div id="ws-list" class="flex-1 overflow-y-auto space-y-2 min-h-[100px]">
+        <p class="text-neutral-500 text-sm">Loading...</p>
+      </div>
+      <div class="flex justify-end mt-4">
+        <button id="ws-close" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded px-4 py-2 text-sm text-gray-400">Close</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
