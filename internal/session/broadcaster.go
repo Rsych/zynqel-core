@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/Rsych/zynqel-core/internal/intercept"
 	"github.com/Rsych/zynqel-core/internal/pty"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
@@ -16,33 +17,39 @@ const (
 	// subscriberChanSize is the channel buffer for each subscriber.
 	// Non-blocking sends drop data if the subscriber can't keep up.
 	subscriberChanSize = 64
+
+	// subscriberEventChanSize is the channel buffer for intercept events.
+	subscriberEventChanSize = 16
 )
 
-// Subscriber receives live PTY output via the Ch channel.
-// The channel is closed when the PTY stream ends or the subscriber is removed.
+// Subscriber receives live PTY output via Ch and detected prompts via Events.
+// Both channels are closed when the PTY stream ends or the subscriber is removed.
 type Subscriber struct {
-	Ch chan []byte
+	Ch     chan []byte
+	Events chan intercept.Prompt
 }
 
 // Broadcaster reads from a single PTYConn, buffers output in a ring buffer,
 // and fans out to multiple subscribers. Safe for concurrent use.
 type Broadcaster struct {
-	conn    sandbox.PTYConn
-	ring    *pty.RingBuffer
-	mu      sync.Mutex
-	subs    map[*Subscriber]struct{}
-	stopped chan struct{}
-	once    sync.Once
+	conn        sandbox.PTYConn
+	ring        *pty.RingBuffer
+	intercepter *intercept.Intercepter
+	mu          sync.Mutex
+	subs        map[*Subscriber]struct{}
+	stopped     chan struct{}
+	once        sync.Once
 }
 
 // NewBroadcaster creates a Broadcaster and starts reading from conn.
 // bufSize is the ring buffer size in bytes (0 = default 64KB).
 func NewBroadcaster(conn sandbox.PTYConn, bufSize int) *Broadcaster {
 	b := &Broadcaster{
-		conn:    conn,
-		ring:    pty.NewRingBuffer(bufSize),
-		subs:    make(map[*Subscriber]struct{}),
-		stopped: make(chan struct{}),
+		conn:        conn,
+		ring:        pty.NewRingBuffer(bufSize),
+		intercepter: intercept.New(),
+		subs:        make(map[*Subscriber]struct{}),
+		stopped:     make(chan struct{}),
 	}
 	go b.readLoop()
 	return b
@@ -55,7 +62,10 @@ func (b *Broadcaster) Subscribe() (replay []byte, sub *Subscriber) {
 	defer b.mu.Unlock()
 
 	replay = b.ring.Bytes()
-	sub = &Subscriber{Ch: make(chan []byte, subscriberChanSize)}
+	sub = &Subscriber{
+		Ch:     make(chan []byte, subscriberChanSize),
+		Events: make(chan intercept.Prompt, subscriberEventChanSize),
+	}
 	b.subs[sub] = struct{}{}
 	return replay, sub
 }
@@ -68,6 +78,7 @@ func (b *Broadcaster) Unsubscribe(sub *Subscriber) {
 	if _, ok := b.subs[sub]; ok {
 		delete(b.subs, sub)
 		close(sub.Ch)
+		close(sub.Events)
 	}
 }
 
@@ -103,13 +114,22 @@ func (b *Broadcaster) readLoop() {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
 
+			// Scan for prompts before fan-out.
+			prompts := b.intercepter.Scan(chunk)
+
 			b.mu.Lock()
 			_, _ = b.ring.Write(chunk)
 			for sub := range b.subs {
-				// Non-blocking send — drop if subscriber is slow.
 				select {
 				case sub.Ch <- chunk:
 				default:
+				}
+				// Send detected prompts.
+				for _, p := range prompts {
+					select {
+					case sub.Events <- p:
+					default:
+					}
 				}
 			}
 			b.mu.Unlock()
@@ -130,6 +150,7 @@ func (b *Broadcaster) closeAllSubscribers() {
 
 	for sub := range b.subs {
 		close(sub.Ch)
+		close(sub.Events)
 		delete(b.subs, sub)
 	}
 }
