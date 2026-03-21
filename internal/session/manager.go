@@ -316,9 +316,9 @@ func (m *Manager) reapSessions(ctx context.Context) {
 		}
 		// Hard timeout takes priority — cannot be extended by activity.
 		if m.hardTimeout > 0 && time.Since(s.CreatedAt) > m.hardTimeout {
-			toReap = append(toReap, reapEntry{id, "hard-timeout"})
+			toReap = append(toReap, reapEntry{id, fmt.Sprintf("hard-timeout (alive %v)", time.Since(s.CreatedAt).Truncate(time.Second))})
 		} else if m.idleTimeout > 0 && s.IdleSince() > m.idleTimeout {
-			toReap = append(toReap, reapEntry{id, "idle-timeout"})
+			toReap = append(toReap, reapEntry{id, fmt.Sprintf("idle-timeout (idle %v)", s.IdleSince().Truncate(time.Second))})
 		}
 	}
 	m.mu.RUnlock()
