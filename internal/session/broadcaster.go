@@ -37,6 +37,7 @@ type Broadcaster struct {
 	conn        sandbox.PTYConn
 	ring        *pty.RingBuffer
 	intercepter *intercept.Intercepter
+	onActivity  func() // called on PTY read/write activity
 	mu          sync.Mutex
 	subs        map[*Subscriber]struct{}
 	stopped     chan struct{}
@@ -45,11 +46,13 @@ type Broadcaster struct {
 
 // NewBroadcaster creates a Broadcaster and starts reading from conn.
 // bufSize is the ring buffer size in bytes (0 = default 64KB).
-func NewBroadcaster(conn sandbox.PTYConn, bufSize int) *Broadcaster {
+// onActivity is called on every PTY read/write (for idle tracking). May be nil.
+func NewBroadcaster(conn sandbox.PTYConn, bufSize int, onActivity func()) *Broadcaster {
 	b := &Broadcaster{
 		conn:        conn,
 		ring:        pty.NewRingBuffer(bufSize),
 		intercepter: intercept.New(),
+		onActivity:  onActivity,
 		subs:        make(map[*Subscriber]struct{}),
 		stopped:     make(chan struct{}),
 	}
@@ -87,6 +90,9 @@ func (b *Broadcaster) Unsubscribe(sub *Subscriber) {
 // Write sends input to the underlying PTYConn.
 func (b *Broadcaster) Write(p []byte) error {
 	_, err := b.conn.Write(p)
+	if err == nil && b.onActivity != nil {
+		b.onActivity()
+	}
 	return err
 }
 
@@ -113,6 +119,10 @@ func (b *Broadcaster) readLoop() {
 	for {
 		n, err := b.conn.Read(buf)
 		if n > 0 {
+			if b.onActivity != nil {
+				b.onActivity()
+			}
+
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
 

@@ -17,18 +17,22 @@ import (
 
 const defaultImage = "ubuntu:22.04"
 
+const idleCheckInterval = 30 * time.Second
+
 type Manager struct {
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	sandbox  sandbox.Sandbox
-	policy   policy.ResourcePolicy
+	mu          sync.RWMutex
+	sessions    map[string]*Session
+	sandbox     sandbox.Sandbox
+	policy      policy.ResourcePolicy
+	idleTimeout time.Duration
 }
 
 func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy) *Manager {
 	return &Manager{
-		sessions: make(map[string]*Session),
-		sandbox:  sb,
-		policy:   p,
+		sessions:    make(map[string]*Session),
+		sandbox:     sb,
+		policy:      p,
+		idleTimeout: time.Duration(p.IdleTimeoutSec) * time.Second,
 	}
 }
 
@@ -121,8 +125,9 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		CreatedAt:   time.Now(),
 		adapter:     agentAdapter,
 		adapterPTY:  adapterPTY,
-		broadcaster: NewBroadcaster(broadcastConn, DefaultBufferSize),
 	}
+	s.TouchActivity()
+	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity)
 
 	m.mu.Lock()
 	m.sessions[id] = s
@@ -268,6 +273,49 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	}
 	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
+	}
+}
+
+// StartIdleChecker runs a background goroutine that terminates idle sessions.
+// Returns immediately. The checker stops when ctx is cancelled.
+// Does nothing if idle timeout is 0 (disabled).
+func (m *Manager) StartIdleChecker(ctx context.Context) {
+	if m.idleTimeout <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(idleCheckInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.reapIdleSessions(ctx)
+			}
+		}
+	}()
+	log.Printf("idle checker started (timeout=%v, interval=%v)", m.idleTimeout, idleCheckInterval)
+}
+
+func (m *Manager) reapIdleSessions(ctx context.Context) {
+	// Collect idle session IDs under read lock.
+	m.mu.RLock()
+	var idleIDs []string
+	for id, s := range m.sessions {
+		if s.Status == StatusRunning && s.IdleSince() > m.idleTimeout {
+			idleIDs = append(idleIDs, id)
+		}
+	}
+	m.mu.RUnlock()
+
+	// Delete each idle session (acquires write lock per delete).
+	for _, id := range idleIDs {
+		log.Printf("session %s idle-timeout after %v", id, m.idleTimeout)
+		if err := m.Delete(ctx, id); err != nil {
+			log.Printf("warning: failed to delete idle session %s: %v", id, err)
+		}
 	}
 }
 
