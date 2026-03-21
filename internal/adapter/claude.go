@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,7 @@ func (a *ClaudeAdapter) Stop() error {
 	conn := a.conn
 	containerID := a.containerID
 	a.conn = nil
+	a.containerID = ""
 	a.mu.Unlock()
 
 	if containerID == "" {
@@ -65,8 +67,8 @@ func (a *ClaudeAdapter) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout+5*time.Second)
 	defer cancel()
 
-	// Send SIGTERM to all claude/node processes.
-	_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -TERM -f claude || true"})
+	// Send SIGTERM to the claude process and its children.
+	_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -TERM -f '/usr/local/bin/claude' || true"})
 
 	// Wait for process to exit gracefully.
 	exited := a.waitForExit(ctx, containerID, stopTimeout)
@@ -74,7 +76,7 @@ func (a *ClaudeAdapter) Stop() error {
 	if !exited {
 		// Force kill if still running.
 		log.Printf("claude process did not exit after SIGTERM, sending SIGKILL in container %s", shortid.Format(containerID))
-		_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -KILL -f claude || true"})
+		_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -KILL -f '/usr/local/bin/claude' || true"})
 	}
 
 	// Close PTY connection.
@@ -98,10 +100,19 @@ func (a *ClaudeAdapter) waitForExit(ctx context.Context, containerID string, tim
 		case <-ctx.Done():
 			return false
 		case <-tick.C:
-			// Check if any claude process is still running.
-			_, err := a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pgrep -f claude > /dev/null 2>&1"})
+			// pgrep exits 0 if process found, 1 if not found.
+			// Use a two-command chain: pgrep succeeds → echo "running",
+			// pgrep fails → echo "exited". This way ExecRun only errors
+			// on real failures (container gone, network), not on process exit.
+			output, err := a.sb.ExecRun(ctx, containerID,
+				[]string{"sh", "-c", "pgrep -f '/usr/local/bin/claude' > /dev/null 2>&1 && echo running || echo exited"})
 			if err != nil {
-				// pgrep returns non-zero when no process found — process has exited.
+				// Real error (container gone, etc.) — treat as not exited,
+				// let the caller escalate to SIGKILL.
+				log.Printf("warning: failed to check claude process: %v", err)
+				return false
+			}
+			if strings.TrimSpace(string(output)) == "exited" {
 				return true
 			}
 		}
