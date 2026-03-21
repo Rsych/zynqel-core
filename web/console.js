@@ -35,7 +35,6 @@
   term.open(document.getElementById("terminal-container"));
   fitAddon.fit();
 
-  // Prevent browser from capturing Tab, etc.
   term.attachCustomKeyEventHandler(function (event) {
     if ((event.ctrlKey && event.shiftKey && event.key === "I") || event.key === "F12") {
       return false;
@@ -46,7 +45,6 @@
     return true;
   });
 
-  // Debounced resize.
   let resizeTimer = null;
   function debouncedFit() {
     if (resizeTimer) clearTimeout(resizeTimer);
@@ -66,14 +64,20 @@
 
   window.addEventListener("resize", debouncedFit);
 
+  // --- State ---
+
   let ws = null;
+  let wsGeneration = 0; // tracks WS identity to prevent stale handler races
   let currentSessionId = null;
   let currentWorkspaceId = null;
+
+  // --- UI helpers ---
 
   function setStatus(connected, text) {
     const dot = connected ? "bg-green-500" : "bg-red-500";
     statusEl.innerHTML =
-      '<span class="inline-block w-2 h-2 rounded-full ' + dot + ' mr-1 align-middle"></span>' + (text || (connected ? "connected" : "disconnected"));
+      '<span class="inline-block w-2 h-2 rounded-full ' + dot + ' mr-1 align-middle"></span>' +
+      (text || (connected ? "connected" : "disconnected"));
   }
 
   function showCurrentWorkspace(wsId) {
@@ -85,6 +89,24 @@
   function hideCurrentWorkspace() {
     currentWorkspaceId = null;
     currentWsEl.classList.add("hidden");
+  }
+
+  function showWelcome() {
+    term.reset();
+    term.writeln("");
+    term.writeln("  \x1B[32m ____                       _ \x1B[0m");
+    term.writeln("  \x1B[32m|_  / _  _ _ _  __ _ ___| |\x1B[0m");
+    term.writeln("  \x1B[32m / / | || | ' \\/ _` / -_) |\x1B[0m");
+    term.writeln("  \x1B[32m/___| \\_, |_||_\\__, \\___|_|\x1B[0m");
+    term.writeln("  \x1B[32m      |__/        |_|      \x1B[0m");
+    term.writeln("");
+    term.writeln("  Run AI coding agents in your browser.");
+    term.writeln("");
+    term.writeln("  \x1B[32m+ New\x1B[0m          Create a new workspace");
+    term.writeln("  \x1B[34mWorkspaces\x1B[0m     Resume a saved workspace");
+    term.writeln("");
+    term.writeln("  \x1B[90mWorkspaces persist across sessions and server restarts.\x1B[0m");
+    term.writeln("");
   }
 
   // --- API helpers ---
@@ -111,7 +133,7 @@
     await apiFetch(apiUrl("/sessions/" + id), { method: "DELETE" });
   }
 
-  // --- Modal ---
+  // --- New workspace modal ---
 
   const imageConfigs = {
     shell:  { agent: "shell", image: "zynqel-base:latest" },
@@ -133,14 +155,11 @@
     term.focus();
   }
 
-  // Auto-generate workspace ID from repo URL.
   mRepo.addEventListener("input", function () {
     const url = mRepo.value.trim();
     if (!url) { mWorkspace.value = ""; return; }
     const match = url.match(/\/([^/]+?)(\.git)?$/);
-    if (match) {
-      mWorkspace.value = match[1];
-    }
+    if (match) mWorkspace.value = match[1];
   });
 
   async function handleCreate() {
@@ -157,8 +176,6 @@
 
     closeModal();
     term.reset();
-
-    // Show progress in terminal.
     term.writeln("\x1B[32m>\x1B[0m Creating workspace...");
     if (repo) term.writeln("\x1B[32m>\x1B[0m Cloning " + repo + (branch ? " (" + branch + ")" : ""));
     term.writeln("");
@@ -173,13 +190,13 @@
         body: JSON.stringify(config),
       });
       const sess = await res.json();
-      term.writeln("\x1B[32m>\x1B[0m Ready! Connecting...");
+      term.writeln("\x1B[32m>\x1B[0m Ready!");
       term.writeln("");
       currentSessionId = sess.id;
       showCurrentWorkspace(sess.spec.workspace_id);
       connectWS(sess.id);
     } catch (e) {
-      term.writeln("\r\n\x1B[31m> Error: " + e.message + "\x1B[0m");
+      term.writeln("\x1B[31m> Error: " + e.message + "\x1B[0m");
     } finally {
       mCreate.disabled = false;
       mCreate.textContent = "Create";
@@ -212,7 +229,6 @@
         return;
       }
 
-      // Check which workspaces have running sessions.
       const sessRes = await apiFetch(apiUrl("/sessions"));
       const sessions = await sessRes.json();
       const runningMap = {};
@@ -240,22 +256,36 @@
         openBtn.className = "bg-green-900/50 hover:bg-green-800/60 border border-green-700/50 rounded px-3 py-1 text-xs text-green-400";
         openBtn.addEventListener("click", function () {
           closeWorkspaces();
-          resumeWorkspace(workspace.id);
+          resumeWorkspace(workspace.id, workspace.image, workspace.agent);
         });
         actions.appendChild(openBtn);
 
+        if (isRunning) {
+          const stopBtn = document.createElement("button");
+          stopBtn.textContent = "Stop";
+          stopBtn.className = "bg-red-900/30 hover:bg-red-800/40 border border-red-700/40 rounded px-3 py-1 text-xs text-red-400";
+          stopBtn.addEventListener("click", async function () {
+            try {
+              await killSession(runningMap[workspace.id]);
+              await openWorkspaces(); // refresh
+            } catch (e) {
+              alert("Failed to stop: " + e.message);
+            }
+          });
+          actions.appendChild(stopBtn);
+        }
+
         const deleteBtn = document.createElement("button");
         deleteBtn.textContent = "Delete";
-        deleteBtn.className = "bg-red-900/30 hover:bg-red-800/40 border border-red-700/40 rounded px-3 py-1 text-xs text-red-400";
+        deleteBtn.className = "bg-neutral-700/50 hover:bg-neutral-600/50 border border-neutral-600 rounded px-3 py-1 text-xs text-neutral-400";
         deleteBtn.addEventListener("click", async function () {
           if (!confirm("Delete workspace '" + workspace.id + "'? All files will be lost.")) return;
           try {
-            // Kill running session first if any.
             if (runningMap[workspace.id]) {
-              await apiFetch(apiUrl("/sessions/" + runningMap[workspace.id]), { method: "DELETE" });
+              await killSession(runningMap[workspace.id]);
             }
             await apiFetch(apiUrl("/workspaces/" + workspace.id), { method: "DELETE" });
-            await openWorkspaces(); // refresh list
+            await openWorkspaces();
           } catch (e) {
             alert("Failed to delete: " + e.message);
           }
@@ -270,25 +300,29 @@
     }
   }
 
-  async function resumeWorkspace(wsId) {
+  async function resumeWorkspace(wsId, image, agent) {
     disconnectWS();
     term.reset();
-    term.writeln("\x1B[32m>\x1B[0m Opening workspace " + wsId + "...");
+    term.writeln("\x1B[32m>\x1B[0m Opening workspace \x1B[1m" + wsId + "\x1B[0m...");
     term.writeln("");
 
     try {
-      // POST /sessions with workspace_id — backend returns existing session if running.
+      const config = {
+        agent: agent || "shell",
+        workspace_id: wsId,
+      };
+      if (image) config.image = image;
       const res = await apiFetch(apiUrl("/sessions"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent: "shell", image: "zynqel-base:latest", workspace_id: wsId }),
+        body: JSON.stringify(config),
       });
       const sess = await res.json();
       currentSessionId = sess.id;
       showCurrentWorkspace(wsId);
       connectWS(sess.id);
     } catch (e) {
-      term.writeln("\r\n\x1B[31m> Error: " + e.message + "\x1B[0m");
+      term.writeln("\x1B[31m> Error: " + e.message + "\x1B[0m");
     }
   }
 
@@ -303,7 +337,7 @@
     if (e.target === wsOverlay) closeWorkspaces();
   });
 
-  // --- Base64 helpers (binary-safe) ---
+  // --- Base64 helpers ---
 
   function decodeBase64(b64) {
     try {
@@ -327,24 +361,26 @@
 
   function connectWS(sessionId) {
     disconnectWS();
+    const gen = ++wsGeneration; // track this connection's identity
     currentSessionId = sessionId;
 
     ws = new WebSocket(wsUrl(sessionId));
 
     ws.onopen = function () {
+      if (gen !== wsGeneration) return;
       setStatus(true, "connected");
       fitAddon.fit();
       sendResize();
       term.focus();
-      // Trigger a fresh prompt.
       setTimeout(function () {
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (gen === wsGeneration && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "pty.input", data: toBase64("\n") }));
         }
       }, 200);
     };
 
     ws.onmessage = function (event) {
+      if (gen !== wsGeneration) return;
       let msg;
       try {
         msg = JSON.parse(event.data);
@@ -359,6 +395,7 @@
           break;
         }
         case "session.state":
+          if (gen !== wsGeneration) return;
           setStatus(true, msg.data);
           if (msg.data === "stopped") clearAllPrompts();
           break;
@@ -372,16 +409,19 @@
     };
 
     ws.onclose = function () {
+      if (gen !== wsGeneration) return; // stale handler — ignore
       setStatus(false, "disconnected");
       ws = null;
     };
 
     ws.onerror = function () {
+      if (gen !== wsGeneration) return;
       setStatus(false, "error");
     };
   }
 
   function disconnectWS() {
+    wsGeneration++; // invalidate any pending handlers
     if (ws) {
       ws.close();
       ws = null;
@@ -436,33 +476,33 @@
     promptOverlay.innerHTML = "";
   }
 
-  // --- Terminal input -> WebSocket ---
+  // --- Terminal input ---
 
   term.onData(function (data) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: "pty.input", data: toBase64(data) }));
   });
 
-  // --- Button handlers ---
+  // --- Stop button ---
 
   btnStop.addEventListener("click", async function () {
     if (!currentSessionId) return;
+    term.reset();
+    term.writeln("\x1B[33m>\x1B[0m Stopping workspace...");
+
     try {
       await killSession(currentSessionId);
       disconnectWS();
       currentSessionId = null;
       hideCurrentWorkspace();
-      term.reset();
-      term.writeln("\x1B[33m> Workspace stopped.\x1B[0m");
-      term.writeln('Click \x1B[32m+ New\x1B[0m or \x1B[34mWorkspaces\x1B[0m to continue.\r\n');
+      showWelcome();
     } catch (e) {
-      term.writeln("\r\n\x1B[31m> Failed to stop: " + e.message + "\x1B[0m");
+      term.writeln("\x1B[31m> Failed to stop: " + e.message + "\x1B[0m");
     }
   });
 
   // --- Init ---
 
   setStatus(false);
-  term.writeln("\x1B[32mZynqel\x1B[0m Terminal");
-  term.writeln('Click \x1B[32m+ New\x1B[0m to create a workspace or \x1B[34mWorkspaces\x1B[0m to resume.\r\n');
+  showWelcome();
 })();

@@ -80,7 +80,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		spec.Env = make(map[string]string)
 	}
 
-	// Image priority: spec.Image > adapter.Image() > defaultImage
+	// Image priority: committed workspace image > spec.Image > adapter.Image() > defaultImage
 	img := defaultImage
 	var cmd []string
 	if agentAdapter != nil {
@@ -90,6 +90,13 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	}
 	if spec.Image != "" {
 		img = spec.Image
+	}
+
+	// Check if a committed workspace image exists (from previous session).
+	committedImage := "zynqel-ws-" + spec.WorkspaceID + ":latest"
+	if m.sandbox.ImageExists(context.Background(), committedImage) {
+		img = committedImage
+		log.Printf("using committed workspace image %s", committedImage)
 	}
 
 	// All sessions are persistent — auto-generate workspace ID if not provided.
@@ -108,6 +115,11 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		MemoryBytes: m.policy.MemoryBytes(),
 		NanoCPUs:    m.policy.NanoCPUs(),
 		VolumeName:  volumeName,
+		VolumeLabels: map[string]string{
+			"zynqel.managed": "true",
+			"zynqel.image":   img,
+			"zynqel.agent":   spec.Agent,
+		},
 	}
 
 	containerID, err := m.sandbox.Create(ctx, sbSpec)
@@ -301,6 +313,8 @@ func (m *Manager) Resize(id string, cols, rows int) {
 type Workspace struct {
 	ID        string `json:"id"`
 	CreatedAt string `json:"created_at"`
+	Image     string `json:"image,omitempty"`
+	Agent     string `json:"agent,omitempty"`
 }
 
 // ListWorkspaces returns all saved workspace volumes.
@@ -315,6 +329,8 @@ func (m *Manager) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 		workspaces = append(workspaces, Workspace{
 			ID:        wsID,
 			CreatedAt: v.CreatedAt,
+			Image:     v.Image,
+			Agent:     v.Agent,
 		})
 	}
 	return workspaces, nil
@@ -353,6 +369,13 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	}
 	if s.broadcaster != nil {
 		s.broadcaster.Close()
+	}
+	// Commit container state as workspace image (preserves installed packages).
+	if s.Spec.WorkspaceID != "" {
+		commitImage := "zynqel-ws-" + s.Spec.WorkspaceID + ":latest"
+		if err := m.sandbox.Commit(ctx, s.ContainerID, commitImage); err != nil {
+			log.Printf("warning: failed to commit workspace %s: %v", s.Spec.WorkspaceID, err)
+		}
 	}
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)

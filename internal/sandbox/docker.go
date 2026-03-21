@@ -84,6 +84,11 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 		}
 	}
 	if spec.VolumeName != "" {
+		// Ensure volume exists with labels (no-op if already exists).
+		_, _ = d.cli.VolumeCreate(ctx, volume.CreateOptions{
+			Name:   spec.VolumeName,
+			Labels: spec.VolumeLabels,
+		})
 		hostConfig.Mounts = []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
@@ -243,6 +248,27 @@ func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([
 	return output, nil
 }
 
+// Commit saves the current container state as a new image.
+// The image can be used to resume the workspace with all installed packages.
+func (d *DockerSandbox) Commit(ctx context.Context, containerID, imageName string) error {
+	resp, err := d.cli.ContainerCommit(ctx, containerID, container.CommitOptions{
+		Reference: imageName,
+		Comment:   "zynqel workspace snapshot",
+		Pause:     true,
+	})
+	if err != nil {
+		return fmt.Errorf("commit container %s: %w", shortid.Format(containerID), err)
+	}
+	log.Printf("committed container %s as %s (sha: %s)", shortid.Format(containerID), imageName, shortid.Format(resp.ID))
+	return nil
+}
+
+// ImageExists checks if a Docker image exists locally.
+func (d *DockerSandbox) ImageExists(ctx context.Context, imageName string) bool {
+	_, err := d.cli.ImageInspect(ctx, imageName)
+	return err == nil
+}
+
 // ListVolumes returns all Docker volumes matching the given name prefix.
 func (d *DockerSandbox) ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error) {
 	resp, err := d.cli.VolumeList(ctx, volume.ListOptions{
@@ -256,6 +282,8 @@ func (d *DockerSandbox) ListVolumes(ctx context.Context, prefix string) ([]Volum
 		vols = append(vols, VolumeInfo{
 			Name:      v.Name,
 			CreatedAt: v.CreatedAt,
+			Image:     v.Labels["zynqel.image"],
+			Agent:     v.Labels["zynqel.agent"],
 		})
 	}
 	return vols, nil
