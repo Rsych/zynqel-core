@@ -53,7 +53,7 @@ func matchLine(line string) *Prompt {
 		if len(text) > 2 && text[0] == '?' && text[1] == ' ' {
 			text = text[2:]
 		}
-		text = trimSpace(text)
+		text = strings.TrimSpace(text)
 
 		switch p.kind {
 		case "yes_no":
@@ -95,8 +95,4 @@ func yesNoWordPrompt(text, first, second string) *Prompt {
 	_ = first
 	_ = second
 	return &Prompt{Text: text, Options: options, Default: defaultOpt}
-}
-
-func trimSpace(s string) string {
-	return strings.TrimSpace(s)
 }
