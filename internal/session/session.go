@@ -24,7 +24,8 @@ const (
 // Think of it as the "desired state" for a session.
 // The actual running state lives in Session.
 type SessionSpec struct {
-	Agent   string            `json:"agent"` // e.g. "claude", "cursor", "shell"
+	Agent   string            `json:"agent"`           // e.g. "claude", "cursor", "shell"
+	Image   string            `json:"image,omitempty"` // custom Docker image (overrides agent default)
 	RepoURL string            `json:"repo_url,omitempty"`
 	Branch  string            `json:"branch,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`

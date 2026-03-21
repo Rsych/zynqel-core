@@ -4,6 +4,7 @@
   "use strict";
 
   const selectEl = document.getElementById("session-select");
+  const imageSelect = document.getElementById("image-select");
   const btnCreate = document.getElementById("btn-create");
   const btnKill = document.getElementById("btn-kill");
   const btnRefresh = document.getElementById("btn-refresh");
@@ -24,7 +25,39 @@
   term.open(document.getElementById("terminal-container"));
   fitAddon.fit();
 
-  window.addEventListener("resize", () => fitAddon.fit());
+  // Prevent browser from capturing Tab, Ctrl+C, etc.
+  term.attachCustomKeyEventHandler(function (event) {
+    // Let browser handle Ctrl+Shift+I (dev tools) and F12
+    if ((event.ctrlKey && event.shiftKey && event.key === "I") || event.key === "F12") {
+      return false;
+    }
+    // Prevent browser Tab focus switching — send to terminal instead.
+    if (event.key === "Tab") {
+      event.preventDefault();
+    }
+    return true;
+  });
+
+  // Debounced resize to prevent flickering.
+  let resizeTimer = null;
+  function debouncedFit() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      fitAddon.fit();
+      sendResize();
+    }, 100);
+  }
+
+  // Send terminal dimensions to the container PTY.
+  function sendResize() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: "pty.resize",
+      data: { cols: term.cols, rows: term.rows },
+    }));
+  }
+
+  window.addEventListener("resize", debouncedFit);
 
   let ws = null;
   let currentSessionId = null;
@@ -60,11 +93,19 @@
     return res.json();
   }
 
+  const imageConfigs = {
+    shell:  { agent: "shell" },
+    claude: { agent: "claude" },
+    qwen:   { agent: "shell", image: "zynqel-qwen:latest" },
+  };
+
   async function createSession() {
+    const selected = imageSelect.value || "shell";
+    const config = imageConfigs[selected] || imageConfigs.shell;
     const res = await apiFetch(apiUrl("/sessions"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agent: "shell" }),
+      body: JSON.stringify(config),
     });
     return res.json();
   }
@@ -116,13 +157,16 @@
   function connectWS(sessionId) {
     disconnectWS();
     currentSessionId = sessionId;
-    term.clear();
+    term.reset();
     term.focus();
 
     ws = new WebSocket(wsUrl(sessionId));
 
     ws.onopen = function () {
       setStatus(true, "connected");
+      fitAddon.fit();
+      sendResize();
+      term.focus();
     };
 
     ws.onmessage = function (event) {

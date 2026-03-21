@@ -68,15 +68,16 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		spec.Env = make(map[string]string)
 	}
 
-	// Use the adapter's image if one is configured, otherwise default shell.
+	// Image priority: spec.Image > adapter.Image() > defaultImage
 	img := defaultImage
 	var cmd []string
 	if agentAdapter != nil {
 		img = agentAdapter.Image()
-		// Adapter sessions use the image's default CMD (e.g. sleep infinity).
-		// The agent runs via Exec after the container is up.
 	} else {
 		cmd = []string{"/bin/sh"}
+	}
+	if spec.Image != "" {
+		img = spec.Image
 	}
 
 	sbSpec := sandbox.Spec{
@@ -260,6 +261,21 @@ func (m *Manager) WriteInput(id string, data []byte) error {
 	}
 
 	return s.broadcaster.Write(data)
+}
+
+// Resize updates the PTY dimensions for the session's container.
+func (m *Manager) Resize(id string, cols, rows int) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok || s.Status != StatusRunning {
+		return
+	}
+
+	if err := m.sandbox.Resize(context.Background(), s.ContainerID, cols, rows); err != nil {
+		log.Printf("warning: failed to resize session %s: %v", id, err)
+	}
 }
 
 // Shutdown stops and removes all active sessions.

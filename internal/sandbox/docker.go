@@ -232,6 +232,14 @@ func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([
 	return output, nil
 }
 
+// Resize changes the TTY dimensions of a running container.
+func (d *DockerSandbox) Resize(ctx context.Context, id string, cols, rows int) error {
+	return d.cli.ContainerResize(ctx, id, container.ResizeOptions{
+		Width:  uint(cols),
+		Height: uint(rows),
+	})
+}
+
 func (d *DockerSandbox) Close() error {
 	return d.cli.Close()
 }

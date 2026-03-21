@@ -21,6 +21,7 @@ type Sandbox interface {
 	Attach(ctx context.Context, id string) (PTYConn, error)
 	Exec(ctx context.Context, id string, cmd []string) (PTYConn, error)
 	ExecRun(ctx context.Context, id string, cmd []string) ([]byte, error)
+	Resize(ctx context.Context, id string, cols, rows int) error
 }
 
 // PTYConn is a bidirectional connection to a container's PTY.

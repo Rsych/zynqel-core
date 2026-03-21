@@ -19,7 +19,7 @@
     #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
     #status .dot.connected { background: #4caf50; }
     #status .dot.disconnected { background: #f44336; }
-    #terminal-container { flex: 1; padding: 4px; position: relative; }
+    #terminal-container { flex: 1; padding: 4px; position: relative; overflow: hidden; }
     #prompt-overlay { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
     .prompt-card { background: #16213e; border: 1px solid #0f3460; border-radius: 6px; padding: 10px 14px; max-width: 400px; }
     .prompt-card .prompt-text { font-size: 13px; margin-bottom: 8px; color: #e0e0e0; }
@@ -35,6 +35,11 @@
   <div id="toolbar">
     <h1>Zynqel</h1>
     <select id="session-select"><option value="">-- select session --</option></select>
+    <select id="image-select">
+      <option value="shell">Shell (ubuntu)</option>
+      <option value="claude">Claude Code</option>
+      <option value="qwen">Qwen Code</option>
+    </select>
     <button id="btn-create">Create</button>
     <button id="btn-kill" class="danger">Kill</button>
     <button id="btn-refresh">Refresh</button>
