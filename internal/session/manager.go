@@ -25,6 +25,7 @@ type Manager struct {
 	sandbox     sandbox.Sandbox
 	policy      policy.ResourcePolicy
 	idleTimeout time.Duration
+	hardTimeout time.Duration
 }
 
 func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy) *Manager {
@@ -33,6 +34,7 @@ func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy) *Manager {
 		sandbox:     sb,
 		policy:      p,
 		idleTimeout: time.Duration(p.IdleTimeoutSec) * time.Second,
+		hardTimeout: time.Duration(p.HardTimeoutSec) * time.Second,
 	}
 }
 
@@ -276,11 +278,11 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	}
 }
 
-// StartIdleChecker runs a background goroutine that terminates idle sessions.
-// Returns immediately. The checker stops when ctx is cancelled.
-// Does nothing if idle timeout is 0 (disabled).
-func (m *Manager) StartIdleChecker(ctx context.Context) {
-	if m.idleTimeout <= 0 {
+// StartTimeoutChecker runs a background goroutine that terminates idle
+// and expired sessions. Returns immediately. Stops when ctx is cancelled.
+// Does nothing if both idle and hard timeouts are disabled (0).
+func (m *Manager) StartTimeoutChecker(ctx context.Context) {
+	if m.idleTimeout <= 0 && m.hardTimeout <= 0 {
 		return
 	}
 	go func() {
@@ -292,29 +294,39 @@ func (m *Manager) StartIdleChecker(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.reapIdleSessions(ctx)
+				m.reapSessions(ctx)
 			}
 		}
 	}()
-	log.Printf("idle checker started (timeout=%v, interval=%v)", m.idleTimeout, idleCheckInterval)
+	log.Printf("timeout checker started (idle=%v, hard=%v, interval=%v)",
+		m.idleTimeout, m.hardTimeout, idleCheckInterval)
 }
 
-func (m *Manager) reapIdleSessions(ctx context.Context) {
-	// Collect idle session IDs under read lock.
+func (m *Manager) reapSessions(ctx context.Context) {
+	type reapEntry struct {
+		id     string
+		reason string
+	}
+
 	m.mu.RLock()
-	var idleIDs []string
+	var toReap []reapEntry
 	for id, s := range m.sessions {
-		if s.Status == StatusRunning && s.IdleSince() > m.idleTimeout {
-			idleIDs = append(idleIDs, id)
+		if s.Status != StatusRunning {
+			continue
+		}
+		// Hard timeout takes priority — cannot be extended by activity.
+		if m.hardTimeout > 0 && time.Since(s.CreatedAt) > m.hardTimeout {
+			toReap = append(toReap, reapEntry{id, fmt.Sprintf("hard-timeout (alive %v)", time.Since(s.CreatedAt).Truncate(time.Second))})
+		} else if m.idleTimeout > 0 && s.IdleSince() > m.idleTimeout {
+			toReap = append(toReap, reapEntry{id, fmt.Sprintf("idle-timeout (idle %v)", s.IdleSince().Truncate(time.Second))})
 		}
 	}
 	m.mu.RUnlock()
 
-	// Delete each idle session (acquires write lock per delete).
-	for _, id := range idleIDs {
-		log.Printf("session %s idle-timeout after %v", id, m.idleTimeout)
-		if err := m.Delete(ctx, id); err != nil {
-			log.Printf("warning: failed to delete idle session %s: %v", id, err)
+	for _, e := range toReap {
+		log.Printf("session %s %s", e.id, e.reason)
+		if err := m.Delete(ctx, e.id); err != nil {
+			log.Printf("warning: failed to delete session %s: %v", e.id, err)
 		}
 	}
 }

@@ -17,6 +17,7 @@ type ResourcePolicy struct {
 	MemoryMB       int // memory limit in megabytes (default: 512)
 	CPUQuota       int // CPU percentage of one core, e.g. 100 = 1 core (default: 100)
 	IdleTimeoutSec int // idle timeout in seconds (default: 900 = 15 min, 0 = disabled)
+	HardTimeoutSec int // hard timeout in seconds (default: 1800 = 30 min, 0 = disabled)
 }
 
 // DefaultPolicy returns sensible defaults for resource limits.
@@ -25,6 +26,7 @@ func DefaultPolicy() ResourcePolicy {
 		MemoryMB:       512,
 		CPUQuota:       100,
 		IdleTimeoutSec: 900,
+		HardTimeoutSec: 1800,
 	}
 }
 
@@ -34,6 +36,7 @@ func DefaultPolicy() ResourcePolicy {
 //	ZYNQEL_SESSION_MEMORY_MB — memory limit in MB (default: 512)
 //	ZYNQEL_SESSION_CPU_QUOTA — CPU quota as percentage (default: 100)
 //	ZYNQEL_IDLE_TIMEOUT      — idle timeout in seconds (default: 900, 0 = disabled)
+//	ZYNQEL_HARD_TIMEOUT      — hard timeout in seconds (default: 1800, 0 = disabled)
 func PolicyFromEnv() (ResourcePolicy, error) {
 	p := DefaultPolicy()
 
@@ -77,6 +80,20 @@ func PolicyFromEnv() (ResourcePolicy, error) {
 			return p, fmt.Errorf("ZYNQEL_IDLE_TIMEOUT=%d exceeds max %d", n, maxIdleTimeoutSec)
 		}
 		p.IdleTimeoutSec = n
+	}
+
+	if v := os.Getenv("ZYNQEL_HARD_TIMEOUT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return p, fmt.Errorf("invalid ZYNQEL_HARD_TIMEOUT=%q: %w", v, err)
+		}
+		if n < 0 {
+			return p, fmt.Errorf("ZYNQEL_HARD_TIMEOUT must be non-negative, got %d", n)
+		}
+		if n > maxIdleTimeoutSec {
+			return p, fmt.Errorf("ZYNQEL_HARD_TIMEOUT=%d exceeds max %d", n, maxIdleTimeoutSec)
+		}
+		p.HardTimeoutSec = n
 	}
 
 	return p, nil

@@ -28,7 +28,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid resource policy: %v", err)
 	}
-	log.Printf("resource policy: memory=%dMB cpu=%d%% idle_timeout=%ds", rp.MemoryMB, rp.CPUQuota, rp.IdleTimeoutSec)
+	log.Printf("resource policy: memory=%dMB cpu=%d%% idle_timeout=%ds hard_timeout=%ds",
+		rp.MemoryMB, rp.CPUQuota, rp.IdleTimeoutSec, rp.HardTimeoutSec)
 
 	// Connect to Docker daemon.
 	sb, err := sandbox.NewDockerSandbox()
@@ -65,7 +66,7 @@ func main() {
 	// Start idle session checker.
 	idleCtx, idleCancel := context.WithCancel(context.Background())
 	defer idleCancel()
-	sm.StartIdleChecker(idleCtx)
+	sm.StartTimeoutChecker(idleCtx)
 
 	// Start HTTP server in a goroutine.
 	go func() {
