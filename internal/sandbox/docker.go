@@ -196,6 +196,42 @@ func (d *DockerSandbox) Exec(ctx context.Context, id string, cmd []string) (PTYC
 	return &dockerPTYConn{resp: attachResp}, nil
 }
 
+// ExecRun runs a command inside a container and waits for it to finish.
+// Returns combined stdout/stderr output. Returns an error if the command
+// exits with a non-zero status.
+func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([]byte, error) {
+	execCfg := container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	execResp, err := d.cli.ContainerExecCreate(ctx, id, execCfg)
+	if err != nil {
+		return nil, fmt.Errorf("exec create in container %s: %w", shortid.Format(id), err)
+	}
+
+	attachResp, err := d.cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("exec attach in container %s: %w", shortid.Format(id), err)
+	}
+	defer attachResp.Close()
+
+	output, err := io.ReadAll(attachResp.Reader)
+	if err != nil {
+		return output, fmt.Errorf("exec read in container %s: %w", shortid.Format(id), err)
+	}
+
+	inspect, err := d.cli.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return output, fmt.Errorf("exec inspect in container %s: %w", shortid.Format(id), err)
+	}
+	if inspect.ExitCode != 0 {
+		return output, fmt.Errorf("exec in container %s exited with code %d: %s", shortid.Format(id), inspect.ExitCode, string(output))
+	}
+
+	return output, nil
+}
+
 func (d *DockerSandbox) Close() error {
 	return d.cli.Close()
 }

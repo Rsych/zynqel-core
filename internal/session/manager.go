@@ -80,6 +80,15 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("start sandbox: %w", err)
 	}
 
+	// Setup workspace: clone repo and checkout branch before agent starts.
+	if spec.RepoURL != "" {
+		if err := m.setupWorkspace(ctx, containerID, spec); err != nil {
+			log.Printf("workspace setup failed, cleaning up container %s: %v", shortid.Format(containerID), err)
+			m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
+			return nil, fmt.Errorf("setup workspace: %w", err)
+		}
+	}
+
 	// If an adapter is configured, start the agent inside the container.
 	var adapterPTY sandbox.PTYConn
 	if agentAdapter != nil {
@@ -197,6 +206,27 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
 	}
+}
+
+// setupWorkspace clones a repo and checks out the specified branch inside the container.
+func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec SessionSpec) error {
+	// Clone the repo into /workspace.
+	cloneCmd := []string{"git", "clone", spec.RepoURL, "/workspace"}
+	if _, err := m.sandbox.ExecRun(ctx, containerID, cloneCmd); err != nil {
+		return fmt.Errorf("git clone: %w", err)
+	}
+	log.Printf("cloned %s into /workspace", spec.RepoURL)
+
+	// Checkout branch if specified.
+	if spec.Branch != "" {
+		checkoutCmd := []string{"git", "-C", "/workspace", "checkout", spec.Branch}
+		if _, err := m.sandbox.ExecRun(ctx, containerID, checkoutCmd); err != nil {
+			return fmt.Errorf("git checkout %s: %w", spec.Branch, err)
+		}
+		log.Printf("checked out branch %s", spec.Branch)
+	}
+
+	return nil
 }
 
 func generateID() (string, error) {
