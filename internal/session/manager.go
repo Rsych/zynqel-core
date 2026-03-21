@@ -48,27 +48,22 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
-	// If a session with this workspace_id is already running, return it.
+	// Check for existing workspace session AND capacity under a single lock
+	// to prevent races where two requests create duplicate sessions.
+	m.mu.RLock()
 	if spec.WorkspaceID != "" {
-		m.mu.RLock()
 		for _, s := range m.sessions {
 			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusRunning {
 				m.mu.RUnlock()
 				return s, nil
 			}
 		}
-		m.mu.RUnlock()
 	}
-
-	// Check capacity before doing any expensive work.
-	if m.policy.MaxSessions > 0 {
-		m.mu.RLock()
-		count := len(m.sessions)
+	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
 		m.mu.RUnlock()
-		if count >= m.policy.MaxSessions {
-			return nil, fmt.Errorf("at capacity (%d/%d): %w", count, m.policy.MaxSessions, ErrAtCapacity)
-		}
+		return nil, fmt.Errorf("at capacity (%d/%d): %w", len(m.sessions), m.policy.MaxSessions, ErrAtCapacity)
 	}
+	m.mu.RUnlock()
 
 	// Validate agent and create adapter (nil for bare shell).
 	agentAdapter, err := adapter.New(spec.Agent, m.sandbox)
@@ -94,7 +89,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 
 	// Check if a committed workspace image exists (from previous session).
 	committedImage := "zynqel-ws-" + spec.WorkspaceID + ":latest"
-	if m.sandbox.ImageExists(context.Background(), committedImage) {
+	if m.sandbox.ImageExists(ctx, committedImage) {
 		img = committedImage
 		log.Printf("using committed workspace image %s", committedImage)
 	}
@@ -178,12 +173,23 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity)
 
 	m.mu.Lock()
-	// Recheck capacity under write lock to handle concurrent creates.
+	// Recheck under write lock to handle concurrent creates.
 	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
 		m.mu.Unlock()
-		log.Printf("warning: capacity race — cleaning up container %s created during concurrent request", shortid.Format(s.ContainerID))
+		log.Printf("warning: capacity race — cleaning up container %s", shortid.Format(s.ContainerID))
 		m.cleanupSession(context.Background(), s)
 		return nil, fmt.Errorf("at capacity (race): %w", ErrAtCapacity)
+	}
+	// Recheck workspace — another request may have created it while we were starting.
+	if spec.WorkspaceID != "" {
+		for _, existing := range m.sessions {
+			if existing.Spec.WorkspaceID == spec.WorkspaceID && existing.Status == StatusRunning {
+				m.mu.Unlock()
+				log.Printf("warning: workspace race — cleaning up duplicate container %s", shortid.Format(s.ContainerID))
+				m.cleanupSession(context.Background(), s)
+				return existing, nil
+			}
+		}
 	}
 	m.sessions[id] = s
 	m.mu.Unlock()

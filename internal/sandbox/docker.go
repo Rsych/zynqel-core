@@ -85,10 +85,12 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 	}
 	if spec.VolumeName != "" {
 		// Ensure volume exists with labels (no-op if already exists).
-		_, _ = d.cli.VolumeCreate(ctx, volume.CreateOptions{
+		if _, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{
 			Name:   spec.VolumeName,
 			Labels: spec.VolumeLabels,
-		})
+		}); err != nil {
+			return "", fmt.Errorf("create volume %s: %w", spec.VolumeName, err)
+		}
 		hostConfig.Mounts = []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
