@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -24,6 +25,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.sessions.Create(r.Context(), spec)
 	if err != nil {
+		if errors.Is(err, session.ErrAtCapacity) {
+			writeError(w, http.StatusTooManyRequests, "session capacity exceeded")
+			return
+		}
 		log.Printf("error creating session: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create session")
 		return
