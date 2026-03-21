@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +21,11 @@ import (
 const defaultImage = "zynqel-base:latest"
 
 const idleCheckInterval = 30 * time.Second
+
+const volumePrefix = "zynqel-ws-"
+
+// validWorkspaceID matches lowercase alphanumeric, hyphens, underscores.
+var validWorkspaceID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // ErrAtCapacity is returned when the maximum number of concurrent sessions is reached.
 var ErrAtCapacity = errors.New("session capacity exceeded")
@@ -88,7 +95,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	}
 
 	// Check if a committed workspace image exists (from previous session).
-	committedImage := "zynqel-ws-" + spec.WorkspaceID + ":latest"
+	committedImage := volumePrefix + spec.WorkspaceID + ":latest"
 	if m.sandbox.ImageExists(ctx, committedImage) {
 		img = committedImage
 		log.Printf("using committed workspace image %s", committedImage)
@@ -98,7 +105,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	if spec.WorkspaceID == "" {
 		spec.WorkspaceID = id[:8]
 	}
-	volumeName := "zynqel-ws-" + spec.WorkspaceID
+	// Normalize: lowercase, replace invalid chars.
+	spec.WorkspaceID = strings.ToLower(spec.WorkspaceID)
+	if !validWorkspaceID.MatchString(spec.WorkspaceID) {
+		return nil, fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", spec.WorkspaceID)
+	}
+	volumeName := volumePrefix + spec.WorkspaceID
 
 	sbSpec := sandbox.Spec{
 		Image: img,
@@ -325,13 +337,16 @@ type Workspace struct {
 
 // ListWorkspaces returns all saved workspace volumes.
 func (m *Manager) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
-	vols, err := m.sandbox.ListVolumes(ctx, "zynqel-ws-")
+	vols, err := m.sandbox.ListVolumes(ctx, volumePrefix)
 	if err != nil {
 		return nil, err
 	}
 	workspaces := make([]Workspace, 0, len(vols))
 	for _, v := range vols {
-		wsID := v.Name[len("zynqel-ws-"):]
+		wsID := strings.TrimPrefix(v.Name, volumePrefix)
+		if wsID == v.Name {
+			continue // not a zynqel workspace volume
+		}
 		workspaces = append(workspaces, Workspace{
 			ID:        wsID,
 			CreatedAt: v.CreatedAt,
@@ -344,7 +359,7 @@ func (m *Manager) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 
 // DeleteWorkspace removes a workspace volume.
 func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
-	return m.sandbox.RemoveVolume(ctx, "zynqel-ws-"+wsID)
+	return m.sandbox.RemoveVolume(ctx, volumePrefix+wsID)
 }
 
 // Shutdown stops and removes all active sessions.
@@ -378,7 +393,7 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	}
 	// Commit container state as workspace image (preserves installed packages).
 	if s.Spec.WorkspaceID != "" {
-		commitImage := "zynqel-ws-" + s.Spec.WorkspaceID + ":latest"
+		commitImage := volumePrefix + s.Spec.WorkspaceID + ":latest"
 		if err := m.sandbox.Commit(ctx, s.ContainerID, commitImage); err != nil {
 			log.Printf("warning: failed to commit workspace %s: %v", s.Spec.WorkspaceID, err)
 		}
