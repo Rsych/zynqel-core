@@ -130,6 +130,17 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				log.Printf("pty write error for session %s: %v", id, err)
 				return
 			}
+		case "intercept.response":
+			var resp interceptResponse
+			if err := json.Unmarshal(msg.Data, &resp); err != nil {
+				log.Printf("invalid intercept.response data: %v", err)
+				continue
+			}
+			keystroke := mapOptionToKeystroke(resp.Option)
+			if err := s.sessions.WriteInput(id, []byte(keystroke)); err != nil {
+				log.Printf("pty write error for session %s: %v", id, err)
+				return
+			}
 		default:
 			log.Printf("unknown message type: %s", msg.Type)
 		}
@@ -169,6 +180,24 @@ func sendWSEvent(conn *websocket.Conn, mu *sync.Mutex, msgType string, data any)
 	defer mu.Unlock()
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 		log.Printf("websocket write error: %v", err)
+	}
+}
+
+// interceptResponse is the client's reply to an intercept.event.
+type interceptResponse struct {
+	ID     string `json:"id"`     // Event ID from the prompt
+	Option string `json:"option"` // Selected option (e.g. "Yes", "No")
+}
+
+// mapOptionToKeystroke converts a prompt option to the keystroke to send.
+func mapOptionToKeystroke(option string) string {
+	switch option {
+	case "Yes":
+		return "y\n"
+	case "No":
+		return "n\n"
+	default:
+		return option + "\n"
 	}
 }
 
