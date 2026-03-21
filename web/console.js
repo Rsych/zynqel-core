@@ -18,10 +18,12 @@
   const mWorkspace = document.getElementById("m-workspace");
   const mCancel = document.getElementById("m-cancel");
   const mCreate = document.getElementById("m-create");
+  const mError = document.getElementById("m-error");
 
   const term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
+    scrollback: 5000,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
     theme: {
       background: "#000000",
@@ -45,6 +47,14 @@
     return true;
   });
 
+  // Escape closes modals.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      if (!modalOverlay.classList.contains("hidden")) { closeModal(); }
+      if (!wsOverlay.classList.contains("hidden")) { closeWorkspaces(); }
+    }
+  });
+
   let resizeTimer = null;
   function debouncedFit() {
     if (resizeTimer) clearTimeout(resizeTimer);
@@ -56,10 +66,7 @@
 
   function sendResize() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-      type: "pty.resize",
-      data: { cols: term.cols, rows: term.rows },
-    }));
+    ws.send(JSON.stringify({ type: "pty.resize", data: { cols: term.cols, rows: term.rows } }));
   }
 
   window.addEventListener("resize", debouncedFit);
@@ -67,28 +74,45 @@
   // --- State ---
 
   let ws = null;
-  let wsGeneration = 0; // tracks WS identity to prevent stale handler races
+  let wsGeneration = 0;
   let currentSessionId = null;
   let currentWorkspaceId = null;
+
+  // --- Friendly error messages ---
+
+  function friendlyError(msg) {
+    if (msg.indexOf("connection refused") !== -1) return "Cannot connect to server. Is zynqel-core running?";
+    if (msg.indexOf("pull access denied") !== -1) return "Docker image not found. Run: make images";
+    if (msg.indexOf("at capacity") !== -1) return "Too many active sessions. Stop one and try again.";
+    if (msg.indexOf("No such image") !== -1) return "Docker image not built. Run: make images";
+    if (msg.indexOf("could not read Username") !== -1) return "Repository not found or is private. Check the URL.";
+    if (msg.indexOf("Repository not found") !== -1) return "Repository not found. Check the URL.";
+    // Strip JSON wrapper and binary framing from error messages.
+    const jsonMatch = msg.match(/"error":"([^"]+)"/);
+    if (jsonMatch) msg = jsonMatch[1];
+    // Clean up Docker exec binary framing bytes.
+    msg = msg.replace(/\\u[\da-f]{4}/gi, "").replace(/\\n/g, " ").trim();
+    return msg;
+  }
 
   // --- UI helpers ---
 
   function setStatus(connected, text) {
     const dot = connected ? "bg-green-500" : "bg-red-500";
-    statusEl.innerHTML =
-      '<span class="inline-block w-2 h-2 rounded-full ' + dot + ' mr-1 align-middle"></span>' +
-      (text || (connected ? "connected" : "disconnected"));
+    statusEl.innerHTML = '<span class="inline-block w-2 h-2 rounded-full ' + dot + ' mr-1 align-middle"></span>' + (text || (connected ? "connected" : "disconnected"));
   }
 
   function showCurrentWorkspace(wsId) {
     currentWorkspaceId = wsId;
     currentWsName.textContent = wsId;
     currentWsEl.classList.remove("hidden");
+    document.title = "Zynqel — " + wsId;
   }
 
   function hideCurrentWorkspace() {
     currentWorkspaceId = null;
     currentWsEl.classList.add("hidden");
+    document.title = "Zynqel";
   }
 
   function showWelcome() {
@@ -109,11 +133,24 @@
     term.writeln("");
   }
 
+  // Animated dots for loading feedback.
+  let loadingInterval = null;
+  function startLoading(prefix) {
+    let dots = 0;
+    term.write("\x1B[32m" + prefix + "\x1B[0m");
+    loadingInterval = setInterval(function () {
+      term.write(".");
+      dots++;
+      if (dots > 30) { stopLoading(); term.writeln(" (still working)"); }
+    }, 500);
+  }
+  function stopLoading() {
+    if (loadingInterval) { clearInterval(loadingInterval); loadingInterval = null; }
+  }
+
   // --- API helpers ---
 
-  function apiUrl(path) {
-    return window.location.origin + path;
-  }
+  function apiUrl(path) { return window.location.origin + path; }
 
   function wsUrl(sessionId) {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -124,7 +161,7 @@
     const res = await fetch(url, opts);
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(res.status + ": " + body);
+      throw new Error(friendlyError(body));
     }
     return res;
   }
@@ -146,8 +183,12 @@
     mBranch.value = "";
     mWorkspace.value = "";
     mAgent.value = "shell";
+    mError.classList.add("hidden");
+    mError.textContent = "";
+    mCreate.disabled = false;
+    mCreate.textContent = "Create";
     modalOverlay.classList.remove("hidden");
-    mRepo.focus();
+    mAgent.focus();
   }
 
   function closeModal() {
@@ -158,8 +199,9 @@
   mRepo.addEventListener("input", function () {
     const url = mRepo.value.trim();
     if (!url) { mWorkspace.value = ""; return; }
-    const match = url.match(/\/([^/]+?)(\.git)?$/);
-    if (match) mWorkspace.value = match[1];
+    // Handle HTTPS, SSH, and shorthand formats.
+    const match = url.match(/[/:]([^/:]+?)(\.git)?$/);
+    if (match) mWorkspace.value = match[1].toLowerCase();
   });
 
   async function handleCreate() {
@@ -174,12 +216,8 @@
     if (branch) config.branch = branch;
     if (wsId) config.workspace_id = wsId;
 
-    closeModal();
-    term.reset();
-    term.writeln("\x1B[32m>\x1B[0m Creating workspace...");
-    if (repo) term.writeln("\x1B[32m>\x1B[0m Cloning " + repo + (branch ? " (" + branch + ")" : ""));
-    term.writeln("");
-
+    // Keep modal open — show loading state.
+    mError.classList.add("hidden");
     mCreate.disabled = true;
     mCreate.textContent = "Creating...";
 
@@ -190,13 +228,19 @@
         body: JSON.stringify(config),
       });
       const sess = await res.json();
-      term.writeln("\x1B[32m>\x1B[0m Ready!");
+
+      // Success — close modal and connect.
+      closeModal();
+      term.reset();
+      term.writeln("\x1B[32m>\x1B[0m Workspace ready!");
       term.writeln("");
       currentSessionId = sess.id;
       showCurrentWorkspace(sess.spec.workspace_id);
       connectWS(sess.id);
     } catch (e) {
-      term.writeln("\x1B[31m> Error: " + e.message + "\x1B[0m");
+      // Error — keep modal open, show inline error.
+      mError.textContent = e.message;
+      mError.classList.remove("hidden");
     } finally {
       mCreate.disabled = false;
       mCreate.textContent = "Create";
@@ -206,9 +250,7 @@
   btnNew.addEventListener("click", openModal);
   mCancel.addEventListener("click", closeModal);
   mCreate.addEventListener("click", handleCreate);
-  modalOverlay.addEventListener("click", function (e) {
-    if (e.target === modalOverlay) closeModal();
-  });
+  // Don't dismiss modal on overlay click — only Cancel or Escape.
 
   // --- Workspaces panel ---
 
@@ -218,7 +260,7 @@
 
   async function openWorkspaces() {
     wsOverlay.classList.remove("hidden");
-    wsList.innerHTML = '<p class="text-neutral-500 text-sm">Loading...</p>';
+    wsList.innerHTML = '<p class="text-neutral-500 text-sm animate-pulse">Loading workspaces...</p>';
 
     try {
       const res = await apiFetch(apiUrl("/workspaces"));
@@ -239,26 +281,37 @@
       wsList.innerHTML = "";
       workspaces.forEach(function (workspace) {
         const isRunning = !!runningMap[workspace.id];
+        const isCurrent = currentWorkspaceId === workspace.id;
         const row = document.createElement("div");
-        row.className = "flex items-center justify-between bg-neutral-800 border border-neutral-700 rounded px-3 py-2";
+        row.className = "flex items-center justify-between rounded px-3 py-2 " +
+          (isCurrent ? "bg-green-900/20 border border-green-700/30" : "bg-neutral-800 border border-neutral-700");
 
         const info = document.createElement("div");
+        const agentLabel = workspace.agent ? ' <span class="text-[10px] text-neutral-500">' + workspace.agent + '</span>' : '';
         info.className = "flex items-center gap-2";
         info.innerHTML = '<span class="text-sm text-gray-200 font-mono">' + workspace.id + '</span>' +
+          agentLabel +
           (isRunning ? '<span class="text-[10px] bg-green-900/50 text-green-400 border border-green-700/50 rounded px-1">running</span>' : '');
         row.appendChild(info);
 
         const actions = document.createElement("div");
         actions.className = "flex gap-2";
 
-        const openBtn = document.createElement("button");
-        openBtn.textContent = isRunning ? "Connect" : "Open";
-        openBtn.className = "bg-green-900/50 hover:bg-green-800/60 border border-green-700/50 rounded px-3 py-1 text-xs text-green-400";
-        openBtn.addEventListener("click", function () {
-          closeWorkspaces();
-          resumeWorkspace(workspace.id, workspace.image, workspace.agent);
-        });
-        actions.appendChild(openBtn);
+        if (isCurrent) {
+          const currentBadge = document.createElement("span");
+          currentBadge.textContent = "Current";
+          currentBadge.className = "bg-green-900/50 text-green-400 border border-green-700/50 rounded px-3 py-1 text-xs";
+          actions.appendChild(currentBadge);
+        } else {
+          const openBtn = document.createElement("button");
+          openBtn.textContent = isRunning ? "Connect" : "Open";
+          openBtn.className = "bg-green-900/50 hover:bg-green-800/60 border border-green-700/50 rounded px-3 py-1 text-xs text-green-400";
+          openBtn.addEventListener("click", function () {
+            closeWorkspaces();
+            resumeWorkspace(workspace.id, workspace.image, workspace.agent);
+          });
+          actions.appendChild(openBtn);
+        }
 
         if (isRunning) {
           const stopBtn = document.createElement("button");
@@ -267,7 +320,12 @@
           stopBtn.addEventListener("click", async function () {
             try {
               await killSession(runningMap[workspace.id]);
-              await openWorkspaces(); // refresh
+              if (currentWorkspaceId === workspace.id) {
+                disconnectWS();
+                hideCurrentWorkspace();
+                showWelcome();
+              }
+              await openWorkspaces();
             } catch (e) {
               alert("Failed to stop: " + e.message);
             }
@@ -281,10 +339,13 @@
         deleteBtn.addEventListener("click", async function () {
           if (!confirm("Delete workspace '" + workspace.id + "'? All files will be lost.")) return;
           try {
-            if (runningMap[workspace.id]) {
-              await killSession(runningMap[workspace.id]);
-            }
+            if (runningMap[workspace.id]) await killSession(runningMap[workspace.id]);
             await apiFetch(apiUrl("/workspaces/" + workspace.id), { method: "DELETE" });
+            if (currentWorkspaceId === workspace.id) {
+              disconnectWS();
+              hideCurrentWorkspace();
+              showWelcome();
+            }
             await openWorkspaces();
           } catch (e) {
             alert("Failed to delete: " + e.message);
@@ -296,21 +357,17 @@
         wsList.appendChild(row);
       });
     } catch (e) {
-      wsList.innerHTML = '<p class="text-red-400 text-sm">Failed to load: ' + e.message + '</p>';
+      wsList.innerHTML = '<p class="text-red-400 text-sm">' + friendlyError(e.message) + '</p>';
     }
   }
 
   async function resumeWorkspace(wsId, image, agent) {
     disconnectWS();
     term.reset();
-    term.writeln("\x1B[32m>\x1B[0m Opening workspace \x1B[1m" + wsId + "\x1B[0m...");
-    term.writeln("");
+    startLoading("> Opening " + wsId);
 
     try {
-      const config = {
-        agent: agent || "shell",
-        workspace_id: wsId,
-      };
+      const config = { agent: agent || "shell", workspace_id: wsId };
       if (image) config.image = image;
       const res = await apiFetch(apiUrl("/sessions"), {
         method: "POST",
@@ -318,11 +375,16 @@
         body: JSON.stringify(config),
       });
       const sess = await res.json();
+      stopLoading();
+      term.writeln(" ready!");
+      term.writeln("");
       currentSessionId = sess.id;
       showCurrentWorkspace(wsId);
       connectWS(sess.id);
     } catch (e) {
-      term.writeln("\x1B[31m> Error: " + e.message + "\x1B[0m");
+      stopLoading();
+      term.writeln("");
+      term.writeln("\x1B[31m> " + friendlyError(e.message) + "\x1B[0m");
     }
   }
 
@@ -331,11 +393,35 @@
     term.focus();
   }
 
+  const wsDeleteAll = document.getElementById("ws-delete-all");
+
+  wsDeleteAll.addEventListener("click", async function () {
+    if (!confirm("Delete ALL workspaces? This cannot be undone.")) return;
+    try {
+      const res = await apiFetch(apiUrl("/workspaces"));
+      const workspaces = await res.json();
+      // Kill running sessions first.
+      const sessRes = await apiFetch(apiUrl("/sessions"));
+      const sessions = await sessRes.json();
+      for (var i = 0; i < sessions.length; i++) {
+        await killSession(sessions[i].id);
+      }
+      // Delete all volumes.
+      for (var j = 0; j < workspaces.length; j++) {
+        await apiFetch(apiUrl("/workspaces/" + workspaces[j].id), { method: "DELETE" });
+      }
+      disconnectWS();
+      hideCurrentWorkspace();
+      showWelcome();
+      await openWorkspaces();
+    } catch (e) {
+      alert("Failed: " + e.message);
+    }
+  });
+
   btnWorkspaces.addEventListener("click", openWorkspaces);
   wsCloseBtn.addEventListener("click", closeWorkspaces);
-  wsOverlay.addEventListener("click", function (e) {
-    if (e.target === wsOverlay) closeWorkspaces();
-  });
+  // Don't dismiss workspaces panel on overlay click — only Close or Escape.
 
   // --- Base64 helpers ---
 
@@ -343,7 +429,7 @@
     try {
       const raw = atob(b64);
       const buf = new Uint8Array(raw.length);
-      for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+      for (var i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
       return buf;
     } catch (e) {
       return null;
@@ -361,12 +447,21 @@
 
   function connectWS(sessionId) {
     disconnectWS();
-    const gen = ++wsGeneration; // track this connection's identity
+    const gen = ++wsGeneration;
     currentSessionId = sessionId;
+
+    const connectTimeout = setTimeout(function () {
+      if (gen === wsGeneration && ws && ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+        term.writeln("\x1B[31m> Connection timed out. Server may be busy.\x1B[0m");
+        setStatus(false, "timeout");
+      }
+    }, 10000);
 
     ws = new WebSocket(wsUrl(sessionId));
 
     ws.onopen = function () {
+      clearTimeout(connectTimeout);
       if (gen !== wsGeneration) return;
       setStatus(true, "connected");
       fitAddon.fit();
@@ -381,19 +476,14 @@
 
     ws.onmessage = function (event) {
       if (gen !== wsGeneration) return;
-      let msg;
-      try {
-        msg = JSON.parse(event.data);
-      } catch (e) {
-        return;
-      }
+      const msg;
+      try { msg = JSON.parse(event.data); } catch (e) { return; }
 
       switch (msg.type) {
-        case "pty.output": {
+        case "pty.output":
           const buf = decodeBase64(msg.data);
           if (buf) term.write(buf);
           break;
-        }
         case "session.state":
           if (gen !== wsGeneration) return;
           setStatus(true, msg.data);
@@ -403,29 +493,28 @@
           showPrompt(msg.data);
           break;
         case "error":
-          term.writeln("\r\n\x1B[31mError: " + msg.data + "\x1B[0m");
+          term.writeln("\r\n\x1B[31m" + msg.data + "\x1B[0m");
           break;
       }
     };
 
     ws.onclose = function () {
-      if (gen !== wsGeneration) return; // stale handler — ignore
+      clearTimeout(connectTimeout);
+      if (gen !== wsGeneration) return;
       setStatus(false, "disconnected");
       ws = null;
     };
 
     ws.onerror = function () {
+      clearTimeout(connectTimeout);
       if (gen !== wsGeneration) return;
       setStatus(false, "error");
     };
   }
 
   function disconnectWS() {
-    wsGeneration++; // invalidate any pending handlers
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
+    wsGeneration++;
+    if (ws) { ws.close(); ws = null; }
     clearAllPrompts();
     setStatus(false, "disconnected");
   }
@@ -466,10 +555,7 @@
 
   function sendInterceptResponse(eventId, option) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-      type: "intercept.response",
-      data: { id: eventId, option: option },
-    }));
+    ws.send(JSON.stringify({ type: "intercept.response", data: { id: eventId, option: option } }));
   }
 
   function clearAllPrompts() {
@@ -487,17 +573,22 @@
 
   btnStop.addEventListener("click", async function () {
     if (!currentSessionId) return;
+    disconnectWS();
+    hideCurrentWorkspace();
     term.reset();
-    term.writeln("\x1B[33m>\x1B[0m Stopping workspace...");
+    startLoading("> Stopping workspace");
 
     try {
       await killSession(currentSessionId);
-      disconnectWS();
+      stopLoading();
+      term.writeln(" done.");
+      term.writeln("");
       currentSessionId = null;
-      hideCurrentWorkspace();
       showWelcome();
     } catch (e) {
-      term.writeln("\x1B[31m> Failed to stop: " + e.message + "\x1B[0m");
+      stopLoading();
+      term.writeln("");
+      term.writeln("\x1B[31m> " + friendlyError(e.message) + "\x1B[0m");
     }
   });
 

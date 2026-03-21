@@ -59,7 +59,8 @@
       <input id="m-workspace" type="text" placeholder="auto-generated from repo" class="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-neutral-600">
       <p class="text-[10px] text-neutral-600 mt-1">Same ID = resume previous work. Empty = ephemeral session.</p>
 
-      <div class="flex gap-2 mt-6 justify-end">
+      <div id="m-error" class="hidden mt-4 bg-red-900/20 border border-red-700/40 rounded px-3 py-2 text-sm text-red-400"></div>
+      <div class="flex gap-2 mt-4 justify-end">
         <button id="m-cancel" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded px-4 py-2 text-sm text-gray-400">Cancel</button>
         <button id="m-create" class="bg-green-900/60 hover:bg-green-800/60 border border-green-700/50 rounded px-4 py-2 text-sm text-green-400 font-semibold">Create</button>
       </div>
@@ -73,7 +74,8 @@
       <div id="ws-list" class="flex-1 overflow-y-auto space-y-2 min-h-[100px]">
         <p class="text-neutral-500 text-sm">Loading...</p>
       </div>
-      <div class="flex justify-end mt-4">
+      <div class="flex justify-between mt-4">
+        <button id="ws-delete-all" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded px-3 py-2 text-xs text-neutral-500">Delete All</button>
         <button id="ws-close" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded px-4 py-2 text-sm text-gray-400">Close</button>
       </div>
     </div>
