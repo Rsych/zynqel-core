@@ -76,10 +76,14 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	sendWSJSON(conn, &wsMu, "session.state", string(sess.Status))
 
 	// Read loop: PTY → WebSocket (base64-encoded output)
-	go stream.Run(r.Context(), func(data []byte) {
-		encoded := base64.StdEncoding.EncodeToString(data)
-		sendWSJSON(conn, &wsMu, "pty.output", encoded)
-	})
+	go func() {
+		stream.Run(r.Context(), func(data []byte) {
+			encoded := base64.StdEncoding.EncodeToString(data)
+			sendWSJSON(conn, &wsMu, "pty.output", encoded)
+		})
+		// PTY stream ended — notify client before connection closes.
+		sendWSJSON(conn, &wsMu, "session.state", "stopped")
+	}()
 
 	// Write loop: WebSocket → PTY
 	for {

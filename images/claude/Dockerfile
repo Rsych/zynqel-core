@@ -11,6 +11,7 @@ RUN apt-get update && \
         curl \
         ca-certificates \
         jq \
+        procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Create workspace directory
