@@ -33,8 +33,9 @@ type wsMessage struct {
 //
 // Server → Client messages:
 //
-//	{"type": "pty.output", "data": "<base64>"}     — terminal output
-//	{"type": "session.state", "data": "running"}   — sent on connect
+//	{"type": "pty.output", "data": "<base64>"}                              — terminal output
+//	{"type": "session.state", "data": "running"}                            — sent on connect
+//	{"type": "intercept.event", "data": {"id":"evt_...","text":"...","options":[...]}} — detected prompt
 //
 // Client → Server messages:
 //
@@ -90,6 +91,13 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 		sendWSJSON(conn, &wsMu, "session.state", "stopped")
 	}()
 
+	// Intercept events: detected CLI prompts.
+	go func() {
+		for prompt := range sub.Events {
+			sendWSEvent(conn, &wsMu, "intercept.event", prompt)
+		}
+	}()
+
 	// Input loop: WebSocket → PTY.
 	for {
 		_, raw, err := conn.ReadMessage()
@@ -135,6 +143,26 @@ func sendWSJSON(conn *websocket.Conn, mu *sync.Mutex, msgType string, data strin
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("failed to marshal ws message: %v", err)
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		log.Printf("websocket write error: %v", err)
+	}
+}
+
+// sendWSEvent sends a typed message with a struct data payload.
+func sendWSEvent(conn *websocket.Conn, mu *sync.Mutex, msgType string, data any) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("failed to marshal event data: %v", err)
+		return
+	}
+	msg := wsMessage{Type: msgType, Data: raw}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal ws event: %v", err)
 		return
 	}
 	mu.Lock()

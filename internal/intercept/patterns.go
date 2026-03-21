@@ -85,7 +85,7 @@ func yesNoPrompt(text, first, second string) *Prompt {
 		defaultOpt = "Yes"
 	}
 
-	return &Prompt{Text: text, Options: options, Default: defaultOpt}
+	return &Prompt{ID: generateEventID(), Text: text, Options: options, Default: defaultOpt}
 }
 
 func yesNoWordPrompt(text, first, second string) *Prompt {
@@ -94,5 +94,5 @@ func yesNoWordPrompt(text, first, second string) *Prompt {
 	// Word variant: "yes"/"no" — no default indication from case.
 	_ = first
 	_ = second
-	return &Prompt{Text: text, Options: options, Default: defaultOpt}
+	return &Prompt{ID: generateEventID(), Text: text, Options: options, Default: defaultOpt}
 }
