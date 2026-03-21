@@ -251,15 +251,17 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	}
 }
 
-// cleanupSession stops the broadcaster, adapter, and container.
+// cleanupSession stops the adapter, broadcaster, and container.
+// Order matters: adapter sends SIGTERM/SIGKILL first, then broadcaster
+// closes the PTY (they share the same connection).
 func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
-	if s.broadcaster != nil {
-		s.broadcaster.Close()
-	}
 	if s.adapter != nil {
 		if err := s.adapter.Stop(); err != nil {
 			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
 		}
+	}
+	if s.broadcaster != nil {
+		s.broadcaster.Close()
 	}
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
