@@ -82,7 +82,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		spec.Env = make(map[string]string)
 	}
 
-	// Image priority: committed workspace image > spec.Image > adapter.Image() > defaultImage
+	// Image priority: spec.Image (explicit) > committed workspace > adapter > default
 	img := defaultImage
 	var cmd []string
 	if agentAdapter != nil {
@@ -90,15 +90,17 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	} else {
 		cmd = []string{"/bin/bash"}
 	}
-	if spec.Image != "" {
-		img = spec.Image
-	}
 
-	// Check if a committed workspace image exists (from previous session).
+	// Use committed workspace image if exists (preserves installed packages).
 	committedImage := volumePrefix + spec.WorkspaceID + ":latest"
 	if m.sandbox.ImageExists(ctx, committedImage) {
 		img = committedImage
 		log.Printf("using committed workspace image %s", committedImage)
+	}
+
+	// Explicit spec.Image always wins (user intent).
+	if spec.Image != "" {
+		img = spec.Image
 	}
 
 	// All sessions are persistent — auto-generate workspace ID if not provided.
