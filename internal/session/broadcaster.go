@@ -17,6 +17,9 @@ const (
 	// subscriberChanSize is the channel buffer for each subscriber.
 	// Non-blocking sends drop data if the subscriber can't keep up.
 	subscriberChanSize = 64
+
+	// subscriberEventChanSize is the channel buffer for intercept events.
+	subscriberEventChanSize = 16
 )
 
 // Subscriber receives live PTY output via Ch and detected prompts via Events.
@@ -61,7 +64,7 @@ func (b *Broadcaster) Subscribe() (replay []byte, sub *Subscriber) {
 	replay = b.ring.Bytes()
 	sub = &Subscriber{
 		Ch:     make(chan []byte, subscriberChanSize),
-		Events: make(chan intercept.Prompt, 16),
+		Events: make(chan intercept.Prompt, subscriberEventChanSize),
 	}
 	b.subs[sub] = struct{}{}
 	return replay, sub

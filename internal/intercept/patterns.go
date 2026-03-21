@@ -1,6 +1,9 @@
 package intercept
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // ansiEscape matches ANSI escape sequences (colors, cursor movement, etc.).
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
@@ -95,12 +98,5 @@ func yesNoWordPrompt(text, first, second string) *Prompt {
 }
 
 func trimSpace(s string) string {
-	// Trim whitespace and common trailing punctuation.
-	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
-		s = s[:len(s)-1]
-	}
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
-		s = s[1:]
-	}
-	return s
+	return strings.TrimSpace(s)
 }
