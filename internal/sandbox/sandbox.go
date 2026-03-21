@@ -42,4 +42,5 @@ type Spec struct {
 	Labels      map[string]string // Container labels for identification
 	MemoryBytes int64             // Memory limit in bytes (0 = no limit)
 	NanoCPUs    int64             // CPU limit in Docker NanoCPU units (1e9 = 1 core, 0 = no limit)
+	VolumeName  string            // Docker volume to mount at /workspace (empty = no volume)
 }

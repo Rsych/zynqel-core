@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 )
 
@@ -79,6 +80,15 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 		hostConfig.Resources = container.Resources{
 			Memory:   spec.MemoryBytes,
 			NanoCPUs: spec.NanoCPUs,
+		}
+	}
+	if spec.VolumeName != "" {
+		hostConfig.Mounts = []mount.Mount{
+			{
+				Type:   mount.TypeVolume,
+				Source: spec.VolumeName,
+				Target: "/workspace",
+			},
 		}
 	}
 

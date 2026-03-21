@@ -80,6 +80,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		img = spec.Image
 	}
 
+	// Compute volume name for persistent workspaces.
+	var volumeName string
+	if spec.WorkspaceID != "" {
+		volumeName = "zynqel-ws-" + spec.WorkspaceID
+	}
+
 	sbSpec := sandbox.Spec{
 		Image: img,
 		Cmd:   cmd,
@@ -89,6 +95,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		},
 		MemoryBytes: m.policy.MemoryBytes(),
 		NanoCPUs:    m.policy.NanoCPUs(),
+		VolumeName:  volumeName,
 	}
 
 	containerID, err := m.sandbox.Create(ctx, sbSpec)
@@ -370,6 +377,19 @@ func (m *Manager) reapSessions(ctx context.Context) {
 
 // setupWorkspace clones a repo and checks out the specified branch inside the container.
 func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec SessionSpec) error {
+	// If workspace already has a git repo (persistent volume), skip clone.
+	if _, err := m.sandbox.ExecRun(ctx, containerID, []string{"test", "-d", "/workspace/.git"}); err == nil {
+		log.Printf("workspace already populated, skipping clone")
+		if spec.Branch != "" {
+			checkoutCmd := []string{"git", "-C", "/workspace", "checkout", spec.Branch}
+			if _, err := m.sandbox.ExecRun(ctx, containerID, checkoutCmd); err != nil {
+				return fmt.Errorf("git checkout %s: %w", spec.Branch, err)
+			}
+			log.Printf("checked out branch %s", spec.Branch)
+		}
+		return nil
+	}
+
 	// Clone the repo into /workspace.
 	cloneCmd := []string{"git", "clone", spec.RepoURL, "/workspace"}
 	if _, err := m.sandbox.ExecRun(ctx, containerID, cloneCmd); err != nil {
