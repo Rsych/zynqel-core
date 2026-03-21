@@ -10,6 +10,7 @@ const (
 	maxMemoryMB       = 2048  // 2 GB — hard ceiling for coding agent sessions
 	maxCPUQuota       = 200   // 2 cores — hard ceiling
 	maxIdleTimeoutSec = 86400 // 24 hours
+	maxMaxSessions    = 1000  // hard ceiling for concurrent sessions
 )
 
 // ResourcePolicy defines default resource limits applied to every session container.
@@ -18,6 +19,7 @@ type ResourcePolicy struct {
 	CPUQuota       int // CPU percentage of one core, e.g. 100 = 1 core (default: 100)
 	IdleTimeoutSec int // idle timeout in seconds (default: 900 = 15 min, 0 = disabled)
 	HardTimeoutSec int // hard timeout in seconds (default: 1800 = 30 min, 0 = disabled)
+	MaxSessions    int // max concurrent sessions (default: 10, 0 = unlimited)
 }
 
 // DefaultPolicy returns sensible defaults for resource limits.
@@ -27,6 +29,7 @@ func DefaultPolicy() ResourcePolicy {
 		CPUQuota:       100,
 		IdleTimeoutSec: 900,
 		HardTimeoutSec: 1800,
+		MaxSessions:    10,
 	}
 }
 
@@ -37,6 +40,7 @@ func DefaultPolicy() ResourcePolicy {
 //	ZYNQEL_SESSION_CPU_QUOTA — CPU quota as percentage (default: 100)
 //	ZYNQEL_IDLE_TIMEOUT      — idle timeout in seconds (default: 900, 0 = disabled)
 //	ZYNQEL_HARD_TIMEOUT      — hard timeout in seconds (default: 1800, 0 = disabled)
+//	ZYNQEL_MAX_SESSIONS      — max concurrent sessions (default: 10, 0 = unlimited)
 func PolicyFromEnv() (ResourcePolicy, error) {
 	p := DefaultPolicy()
 
@@ -94,6 +98,20 @@ func PolicyFromEnv() (ResourcePolicy, error) {
 			return p, fmt.Errorf("ZYNQEL_HARD_TIMEOUT=%d exceeds max %d", n, maxIdleTimeoutSec)
 		}
 		p.HardTimeoutSec = n
+	}
+
+	if v := os.Getenv("ZYNQEL_MAX_SESSIONS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return p, fmt.Errorf("invalid ZYNQEL_MAX_SESSIONS=%q: %w", v, err)
+		}
+		if n < 0 {
+			return p, fmt.Errorf("ZYNQEL_MAX_SESSIONS must be non-negative, got %d", n)
+		}
+		if n > maxMaxSessions {
+			return p, fmt.Errorf("ZYNQEL_MAX_SESSIONS=%d exceeds max %d", n, maxMaxSessions)
+		}
+		p.MaxSessions = n
 	}
 
 	return p, nil

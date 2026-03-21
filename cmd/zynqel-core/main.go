@@ -28,8 +28,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid resource policy: %v", err)
 	}
-	log.Printf("resource policy: memory=%dMB cpu=%d%% idle_timeout=%ds hard_timeout=%ds",
-		rp.MemoryMB, rp.CPUQuota, rp.IdleTimeoutSec, rp.HardTimeoutSec)
+	log.Printf("resource policy: memory=%dMB cpu=%d%% idle_timeout=%ds hard_timeout=%ds max_sessions=%d",
+		rp.MemoryMB, rp.CPUQuota, rp.IdleTimeoutSec, rp.HardTimeoutSec, rp.MaxSessions)
 
 	// Connect to Docker daemon.
 	sb, err := sandbox.NewDockerSandbox()

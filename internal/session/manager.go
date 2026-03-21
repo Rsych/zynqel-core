@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -18,6 +19,9 @@ import (
 const defaultImage = "ubuntu:22.04"
 
 const idleCheckInterval = 30 * time.Second
+
+// ErrAtCapacity is returned when the maximum number of concurrent sessions is reached.
+var ErrAtCapacity = errors.New("session capacity exceeded")
 
 type Manager struct {
 	mu          sync.RWMutex
@@ -42,6 +46,16 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	id, err := generateID()
 	if err != nil {
 		return nil, fmt.Errorf("generate session id: %w", err)
+	}
+
+	// Check capacity before doing any expensive work.
+	if m.policy.MaxSessions > 0 {
+		m.mu.RLock()
+		count := len(m.sessions)
+		m.mu.RUnlock()
+		if count >= m.policy.MaxSessions {
+			return nil, fmt.Errorf("at capacity (%d/%d): %w", count, m.policy.MaxSessions, ErrAtCapacity)
+		}
 	}
 
 	// Validate agent and create adapter (nil for bare shell).
@@ -132,6 +146,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity)
 
 	m.mu.Lock()
+	// Recheck capacity under write lock to handle concurrent creates.
+	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
+		m.mu.Unlock()
+		m.cleanupSession(context.Background(), s)
+		return nil, fmt.Errorf("at capacity (race): %w", ErrAtCapacity)
+	}
 	m.sessions[id] = s
 	m.mu.Unlock()
 
