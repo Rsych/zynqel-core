@@ -141,6 +141,10 @@
         }
         case "session.state":
           setStatus(true, msg.data);
+          if (msg.data === "stopped") clearAllPrompts();
+          break;
+        case "intercept.event":
+          showPrompt(msg.data);
           break;
         case "error":
           term.writeln("\r\n\x1B[31mError: " + msg.data + "\x1B[0m");
@@ -163,7 +167,52 @@
       ws.close();
       ws = null;
     }
+    clearAllPrompts();
     setStatus(false, "disconnected");
+  }
+
+  // --- Intercept prompt UI ---
+
+  const promptOverlay = document.getElementById("prompt-overlay");
+
+  function showPrompt(prompt) {
+    const card = document.createElement("div");
+    card.className = "prompt-card";
+
+    const text = document.createElement("div");
+    text.className = "prompt-text";
+    text.textContent = prompt.text || "Confirm?";
+    card.appendChild(text);
+
+    const buttons = document.createElement("div");
+    buttons.className = "prompt-buttons";
+
+    (prompt.options || ["Yes", "No"]).forEach(function (option) {
+      const btn = document.createElement("button");
+      btn.textContent = option;
+      btn.className = option === "Yes" ? "yes" : "no";
+      if (prompt.default === option) btn.textContent += " *";
+      btn.addEventListener("click", function () {
+        sendInterceptResponse(prompt.id, option);
+        card.remove();
+      });
+      buttons.appendChild(btn);
+    });
+
+    card.appendChild(buttons);
+    promptOverlay.appendChild(card);
+  }
+
+  function sendInterceptResponse(eventId, option) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: "intercept.response",
+      data: { id: eventId, option: option },
+    }));
+  }
+
+  function clearAllPrompts() {
+    promptOverlay.innerHTML = "";
   }
 
   // --- Terminal input -> WebSocket ---

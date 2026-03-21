@@ -19,7 +19,16 @@
     #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
     #status .dot.connected { background: #4caf50; }
     #status .dot.disconnected { background: #f44336; }
-    #terminal-container { flex: 1; padding: 4px; }
+    #terminal-container { flex: 1; padding: 4px; position: relative; }
+    #prompt-overlay { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
+    .prompt-card { background: #16213e; border: 1px solid #0f3460; border-radius: 6px; padding: 10px 14px; max-width: 400px; }
+    .prompt-card .prompt-text { font-size: 13px; margin-bottom: 8px; color: #e0e0e0; }
+    .prompt-card .prompt-buttons { display: flex; gap: 8px; }
+    .prompt-card .prompt-buttons button { font-size: 13px; padding: 4px 16px; border-radius: 4px; border: 1px solid #0f3460; cursor: pointer; }
+    .prompt-card .prompt-buttons button.yes { background: #1a5276; color: #e0e0e0; }
+    .prompt-card .prompt-buttons button.yes:hover { background: #217dbb; }
+    .prompt-card .prompt-buttons button.no { background: #5c1a1a; color: #e0e0e0; }
+    .prompt-card .prompt-buttons button.no:hover { background: #7a2020; }
   </style>
 </head>
 <body>
@@ -31,7 +40,9 @@
     <button id="btn-refresh">Refresh</button>
     <span id="status"><span class="dot disconnected"></span>disconnected</span>
   </div>
-  <div id="terminal-container"></div>
+  <div id="terminal-container">
+    <div id="prompt-overlay"></div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
