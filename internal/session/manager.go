@@ -82,7 +82,17 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		spec.Env = make(map[string]string)
 	}
 
-	// Image priority: spec.Image (explicit) > committed workspace > adapter > default
+	// Resolve workspace ID first (needed for committed image check).
+	if spec.WorkspaceID == "" {
+		spec.WorkspaceID = id[:8]
+	}
+	spec.WorkspaceID = strings.ToLower(spec.WorkspaceID)
+	if !validWorkspaceID.MatchString(spec.WorkspaceID) {
+		return nil, fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", spec.WorkspaceID)
+	}
+	volumeName := volumePrefix + spec.WorkspaceID
+
+	// Image priority: committed workspace (has auth/packages) > spec.Image > adapter > default
 	img := defaultImage
 	var cmd []string
 	if agentAdapter != nil {
@@ -90,29 +100,15 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	} else {
 		cmd = []string{"/bin/bash"}
 	}
-
-	// Use committed workspace image if exists (preserves installed packages).
+	if spec.Image != "" {
+		img = spec.Image
+	}
+	// Committed workspace image wins — it has installed packages + auth tokens.
 	committedImage := volumePrefix + spec.WorkspaceID + ":latest"
 	if m.sandbox.ImageExists(ctx, committedImage) {
 		img = committedImage
 		log.Printf("using committed workspace image %s", committedImage)
 	}
-
-	// Explicit spec.Image always wins (user intent).
-	if spec.Image != "" {
-		img = spec.Image
-	}
-
-	// All sessions are persistent — auto-generate workspace ID if not provided.
-	if spec.WorkspaceID == "" {
-		spec.WorkspaceID = id[:8]
-	}
-	// Normalize: lowercase, replace invalid chars.
-	spec.WorkspaceID = strings.ToLower(spec.WorkspaceID)
-	if !validWorkspaceID.MatchString(spec.WorkspaceID) {
-		return nil, fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", spec.WorkspaceID)
-	}
-	volumeName := volumePrefix + spec.WorkspaceID
 
 	sbSpec := sandbox.Spec{
 		Image: img,
@@ -146,6 +142,8 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		if err := m.setupWorkspace(ctx, containerID, spec); err != nil {
 			log.Printf("workspace setup failed, cleaning up container %s: %v", shortid.Format(containerID), err)
 			m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
+			// Remove the empty volume so failed workspaces don't linger.
+			_ = m.sandbox.RemoveVolume(ctx, volumeName)
 			return nil, fmt.Errorf("setup workspace: %w", err)
 		}
 	}
