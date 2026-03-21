@@ -100,6 +100,19 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		}
 	}
 
+	// Create the broadcaster — single PTY reader with fan-out to WS clients.
+	var broadcastConn sandbox.PTYConn
+	if adapterPTY != nil {
+		broadcastConn = adapterPTY
+	} else {
+		// Shell sessions: attach once, share via broadcaster.
+		broadcastConn, err = m.sandbox.Attach(ctx, containerID)
+		if err != nil {
+			m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
+			return nil, fmt.Errorf("attach for broadcast: %w", err)
+		}
+	}
+
 	s := &Session{
 		ID:          id,
 		Spec:        spec,
@@ -108,6 +121,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		CreatedAt:   time.Now(),
 		adapter:     agentAdapter,
 		adapterPTY:  adapterPTY,
+		broadcaster: NewBroadcaster(broadcastConn, DefaultBufferSize),
 	}
 
 	m.mu.Lock()
@@ -176,6 +190,50 @@ func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error
 	return m.sandbox.Attach(ctx, s.ContainerID)
 }
 
+// Subscribe returns a broadcast subscription for the session's PTY output.
+// replay contains buffered output for reconnect. sub.Ch receives live output.
+// Caller must call Unsubscribe(id, sub) when done.
+func (m *Manager) Subscribe(id string) (replay []byte, sub *Subscriber, err error) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, nil, fmt.Errorf("session not found: %s", id)
+	}
+	if s.Status != StatusRunning {
+		return nil, nil, fmt.Errorf("session %s is not running", id)
+	}
+
+	replay, sub = s.broadcaster.Subscribe()
+	return replay, sub, nil
+}
+
+// Unsubscribe removes a subscriber from the session's broadcaster.
+func (m *Manager) Unsubscribe(id string, sub *Subscriber) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return
+	}
+	s.broadcaster.Unsubscribe(sub)
+}
+
+// WriteInput sends input to the session's PTY.
+func (m *Manager) WriteInput(id string, data []byte) error {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("session not found: %s", id)
+	}
+
+	return s.broadcaster.Write(data)
+}
+
 // Shutdown stops and removes all active sessions.
 // Called during server shutdown to clean up containers.
 func (m *Manager) Shutdown(ctx context.Context) {
@@ -193,12 +251,17 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	}
 }
 
-// cleanupSession stops the adapter (if any) and removes the container.
+// cleanupSession stops the adapter, broadcaster, and container.
+// Order matters: adapter sends SIGTERM/SIGKILL first, then broadcaster
+// closes the PTY (they share the same connection).
 func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if s.adapter != nil {
 		if err := s.adapter.Stop(); err != nil {
 			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
 		}
+	}
+	if s.broadcaster != nil {
+		s.broadcaster.Close()
 	}
 	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)

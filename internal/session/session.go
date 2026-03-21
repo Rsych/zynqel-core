@@ -42,6 +42,7 @@ type Session struct {
 	Error       string      `json:"error,omitempty"`
 
 	// Unexported — managed by session.Manager, not serialized.
-	adapter    adapter.AgentAdapter // nil for bare shell sessions
-	adapterPTY sandbox.PTYConn      // PTY from adapter's exec, nil for shell
+	adapter     adapter.AgentAdapter // nil for bare shell sessions
+	adapterPTY  sandbox.PTYConn      // PTY from adapter's exec, nil for shell
+	broadcaster *Broadcaster         // output fan-out + ring buffer
 }

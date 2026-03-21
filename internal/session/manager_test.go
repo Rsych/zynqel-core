@@ -64,16 +64,10 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 	}
 	containerID := sess.ContainerID
 
-	// Attach and start long-running processes.
-	ptyConn, err := m.Attach(ctx, sess.ID)
+	// Start long-running processes via WriteInput.
+	err = m.WriteInput(sess.ID, []byte("sleep 3600 &\nyes > /dev/null &\n"))
 	if err != nil {
-		t.Fatalf("Attach: %v", err)
-	}
-	defer func() { _ = ptyConn.Close() }()
-
-	_, err = ptyConn.Write([]byte("sleep 3600 &\nyes > /dev/null &\n"))
-	if err != nil {
-		t.Fatalf("Write: %v", err)
+		t.Fatalf("WriteInput: %v", err)
 	}
 	time.Sleep(500 * time.Millisecond)
 

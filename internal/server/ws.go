@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/Rsych/zynqel-core/internal/pty"
 	"github.com/Rsych/zynqel-core/internal/session"
 	"github.com/gorilla/websocket"
 )
@@ -29,7 +28,8 @@ type wsMessage struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
-// handleSessionStream upgrades to WebSocket and bridges it with the container PTY.
+// handleSessionStream upgrades to WebSocket and bridges it with the session's
+// output broadcaster. Supports multiple viewers and reconnect with replay.
 //
 // Server → Client messages:
 //
@@ -60,32 +60,37 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	ptyConn, err := s.sessions.Attach(r.Context(), id)
+	// Subscribe to the session's output broadcaster.
+	replay, sub, err := s.sessions.Subscribe(id)
 	if err != nil {
-		log.Printf("pty attach failed for session %s: %v", id, err)
-		writeWSError(conn, "failed to attach to container")
+		log.Printf("subscribe failed for session %s: %v", id, err)
+		writeWSError(conn, "failed to subscribe to session output")
 		return
 	}
-
-	stream := pty.New(ptyConn)
-	defer stream.Close()
+	defer s.sessions.Unsubscribe(id, sub)
 
 	var wsMu sync.Mutex
 
-	// Send current session state on connect.
+	// Send current session state.
 	sendWSJSON(conn, &wsMu, "session.state", string(sess.Status))
 
-	// Read loop: PTY → WebSocket (base64-encoded output)
+	// Send buffered replay (reconnect support).
+	if len(replay) > 0 {
+		encoded := base64.StdEncoding.EncodeToString(replay)
+		sendWSJSON(conn, &wsMu, "pty.output", encoded)
+	}
+
+	// Live output: read from subscriber channel.
 	go func() {
-		stream.Run(r.Context(), func(data []byte) {
+		for data := range sub.Ch {
 			encoded := base64.StdEncoding.EncodeToString(data)
 			sendWSJSON(conn, &wsMu, "pty.output", encoded)
-		})
-		// PTY stream ended — notify client before connection closes.
+		}
+		// Channel closed = PTY stream ended.
 		sendWSJSON(conn, &wsMu, "session.state", "stopped")
 	}()
 
-	// Write loop: WebSocket → PTY
+	// Input loop: WebSocket → PTY.
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
@@ -113,7 +118,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				log.Printf("invalid pty.input base64: %v", err)
 				continue
 			}
-			if err := stream.Write(decoded); err != nil {
+			if err := s.sessions.WriteInput(id, decoded); err != nil {
 				log.Printf("pty write error for session %s: %v", id, err)
 				return
 			}

@@ -54,7 +54,6 @@ func (a *ClaudeAdapter) Start(ctx context.Context, containerID string) (sandbox.
 // Sends SIGTERM first, waits up to 5 seconds, then SIGKILL.
 func (a *ClaudeAdapter) Stop() error {
 	a.mu.Lock()
-	conn := a.conn
 	containerID := a.containerID
 	a.conn = nil
 	a.containerID = ""
@@ -79,10 +78,8 @@ func (a *ClaudeAdapter) Stop() error {
 		_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -KILL -f '/usr/local/bin/claude' || true"})
 	}
 
-	// Close PTY connection.
-	if conn != nil {
-		_ = conn.Close()
-	}
+	// PTY connection is closed by the session's Broadcaster, not here.
+	// The adapter only handles signal-based process termination.
 
 	return nil
 }
