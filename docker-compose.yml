@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  zynqel-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./web:/app/web
+    environment:
+      - ZYNQEL_PORT=8080
+      - ZYNQEL_MAX_SESSIONS=10
+      - ZYNQEL_IDLE_TIMEOUT=900
+      - ZYNQEL_HARD_TIMEOUT=1800
+      - ZYNQEL_SESSION_MEMORY_MB=512
+      - ZYNQEL_SESSION_CPU_QUOTA=100
+    restart: unless-stopped
