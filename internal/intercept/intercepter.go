@@ -1,13 +1,25 @@
 package intercept
 
+import (
+	"crypto/rand"
+	"encoding/hex"
+)
+
 // maxLineBuffer limits the accumulated line buffer to prevent unbounded growth.
 const maxLineBuffer = 1024
 
 // Prompt represents a detected CLI confirmation prompt.
 type Prompt struct {
+	ID      string   `json:"id"`                // Unique event ID for response correlation (e.g. "evt_a1b2c3")
 	Text    string   `json:"text"`              // Prompt text (e.g. "Allow Claude to edit file.go?")
 	Options []string `json:"options"`           // Available options (e.g. ["Yes", "No"])
 	Default string   `json:"default,omitempty"` // Default option (e.g. "Yes")
+}
+
+func generateEventID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return "evt_" + hex.EncodeToString(b)
 }
 
 // Intercepter scans PTY output for CLI confirmation prompts.

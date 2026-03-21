@@ -41,11 +41,25 @@ func mustManager(t *testing.T, sb *sandbox.DockerSandbox) *Manager {
 	return NewManager(sb, policy.DefaultPolicy())
 }
 
-// containerExists checks if a specific container still exists.
-func containerExists(t *testing.T, cli *client.Client, containerID string) bool {
+// waitContainerRemoved polls until a container no longer exists or timeout.
+// Docker removal can be async — this avoids flaky assertions.
+func waitContainerRemoved(t *testing.T, cli *client.Client, containerID string, timeout time.Duration) bool {
 	t.Helper()
-	_, err := cli.ContainerInspect(context.Background(), containerID)
-	return err == nil
+	deadline := time.After(timeout)
+	tick := time.NewTicker(500 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			return false
+		case <-tick.C:
+			_, err := cli.ContainerInspect(context.Background(), containerID)
+			if err != nil {
+				return true // container gone
+			}
+		}
+	}
 }
 
 // TestManager_KillDuringActiveTask creates a session with active processes,
@@ -76,9 +90,9 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	// Verify this specific container is gone.
-	if containerExists(t, cli, containerID) {
-		t.Errorf("container %s should not exist after Delete", containerID[:12])
+	// Verify this specific container is gone (Docker removal can be async).
+	if !waitContainerRemoved(t, cli, containerID, 10*time.Second) {
+		t.Errorf("container %s still exists after Delete", containerID[:12])
 	}
 
 	// Verify session is removed from manager.
@@ -201,8 +215,8 @@ func TestManager_ShutdownCleansAll(t *testing.T) {
 
 	// Verify all specific containers are gone.
 	for _, cid := range containerIDs {
-		if containerExists(t, cli, cid) {
-			t.Errorf("container %s should not exist after Shutdown", cid[:12])
+		if !waitContainerRemoved(t, cli, cid, 10*time.Second) {
+			t.Errorf("container %s still exists after Shutdown", cid[:12])
 		}
 	}
 
