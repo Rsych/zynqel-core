@@ -1,6 +1,7 @@
 package session
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/Rsych/zynqel-core/internal/adapter"
@@ -42,7 +43,23 @@ type Session struct {
 	Error       string      `json:"error,omitempty"`
 
 	// Unexported — managed by session.Manager, not serialized.
-	adapter     adapter.AgentAdapter // nil for bare shell sessions
-	adapterPTY  sandbox.PTYConn      // PTY from adapter's exec, nil for shell
-	broadcaster *Broadcaster         // output fan-out + ring buffer
+	adapter      adapter.AgentAdapter // nil for bare shell sessions
+	adapterPTY   sandbox.PTYConn      // PTY from adapter's exec, nil for shell
+	broadcaster  *Broadcaster         // output fan-out + ring buffer
+	lastActivity int64                // unix timestamp, updated atomically
+}
+
+// TouchActivity records current time as last activity.
+// Safe to call from any goroutine.
+func (s *Session) TouchActivity() {
+	atomic.StoreInt64(&s.lastActivity, time.Now().Unix())
+}
+
+// IdleSince returns the duration since the last activity.
+func (s *Session) IdleSince() time.Duration {
+	last := atomic.LoadInt64(&s.lastActivity)
+	if last == 0 {
+		return time.Since(s.CreatedAt)
+	}
+	return time.Since(time.Unix(last, 0))
 }
