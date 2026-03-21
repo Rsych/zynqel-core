@@ -149,6 +149,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	// Recheck capacity under write lock to handle concurrent creates.
 	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
 		m.mu.Unlock()
+		log.Printf("warning: capacity race — cleaning up container %s created during concurrent request", shortid.Format(s.ContainerID))
 		m.cleanupSession(context.Background(), s)
 		return nil, fmt.Errorf("at capacity (race): %w", ErrAtCapacity)
 	}
