@@ -178,7 +178,6 @@
   function showPrompt(prompt) {
     const card = document.createElement("div");
     card.className = "prompt-card";
-    card.dataset.eventId = prompt.id;
 
     const text = document.createElement("div");
     text.className = "prompt-text";

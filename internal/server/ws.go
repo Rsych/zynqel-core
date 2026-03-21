@@ -136,6 +136,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				log.Printf("invalid intercept.response data: %v", err)
 				continue
 			}
+			log.Printf("intercept response for %s: %s", resp.ID, resp.Option)
 			keystroke := mapOptionToKeystroke(resp.Option)
 			if err := s.sessions.WriteInput(id, []byte(keystroke)); err != nil {
 				log.Printf("pty write error for session %s: %v", id, err)
@@ -185,7 +186,7 @@ func sendWSEvent(conn *websocket.Conn, mu *sync.Mutex, msgType string, data any)
 
 // interceptResponse is the client's reply to an intercept.event.
 type interceptResponse struct {
-	ID     string `json:"id"`     // Event ID from the prompt
+	ID     string `json:"id"`     // Event ID (for logging/tracking)
 	Option string `json:"option"` // Selected option (e.g. "Yes", "No")
 }
 
