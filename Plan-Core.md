@@ -12,8 +12,6 @@ A single Go binary that runs CLI-based AI coding agents in isolated Docker sessi
 
 Core is the **data plane**. It executes sessions, manages lifecycles, and streams PTY output. It knows nothing about users, billing, or multi-tenancy.
 
-**Cloud (separate repo)** is the control plane — see `/Users/tamiel/Developer/Personal/Zynqel/Plan-Cloud.md`
-
 ---
 
 ## Status: Complete ✅

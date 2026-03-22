@@ -28,6 +28,12 @@ go.work.sum
 # env file
 .env
 
+# Secrets / credentials
+*.key
+*.pem
+*.p12
+credentials*
+
 # OS
 .DS_Store
 

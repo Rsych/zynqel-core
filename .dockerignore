@@ -1,0 +1,9 @@
+.git
+.env
+.claude
+*.md
+bin/
+images/
+*.key
+*.pem
+*.p12
