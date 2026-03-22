@@ -25,6 +25,7 @@ type Sandbox interface {
 	Stats(ctx context.Context, id string) (*ContainerStats, error)
 	Commit(ctx context.Context, containerID, imageName string) error
 	ImageExists(ctx context.Context, imageName string) bool
+	BuildImage(ctx context.Context, dockerfile, imageName string) error
 	ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error)
 	RemoveVolume(ctx context.Context, name string) error
 }

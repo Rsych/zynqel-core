@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Rsych/zynqel-core/internal/agentcfg"
+	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/session"
 )
 
@@ -13,15 +14,17 @@ type Server struct {
 	router   *http.ServeMux
 	sessions *session.Manager
 	agents   *agentcfg.Store
+	sandbox  sandbox.Sandbox
 }
 
-// New takes a session.Manager, agent config store, and a filesystem for static web assets.
+// New takes a session.Manager, agent config store, sandbox, and a filesystem for static web assets.
 // Pass nil for webFS to disable the dashboard.
-func New(sm *session.Manager, agents *agentcfg.Store, webFS fs.FS) *Server {
+func New(sm *session.Manager, agents *agentcfg.Store, sb sandbox.Sandbox, webFS fs.FS) *Server {
 	s := &Server{
 		router:   http.NewServeMux(),
 		sessions: sm,
 		agents:   agents,
+		sandbox:  sb,
 	}
 	s.routes(webFS)
 	return s

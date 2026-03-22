@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -25,6 +26,13 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Pencil, Trash2, Loader2, Terminal } from "lucide-react";
+
+const DEFAULT_DOCKERFILE = `FROM zynqel-base:latest
+
+# Install your agent CLI tool here, e.g.:
+# RUN npm install -g @your-org/your-agent
+# RUN pip install your-agent
+# RUN apt-get update && apt-get install -y your-agent`;
 
 export function AgentConfigList() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
@@ -134,8 +142,14 @@ export function AgentConfigList() {
         </div>
 
         {custom.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            No custom agents yet. Add one to get started.
+          <div className="rounded-lg border border-dashed border-border p-8 text-center">
+            <Terminal className="h-8 w-8 mx-auto mb-3 text-muted-foreground opacity-50" />
+            <p className="text-sm text-muted-foreground mb-1">
+              No custom agents yet
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Add one to run any CLI agent tool in your workspaces
+            </p>
           </div>
         ) : (
           <Table>
@@ -160,7 +174,7 @@ export function AgentConfigList() {
                     {agent.command?.join(" ")}
                   </TableCell>
                   <TableCell className="font-mono text-sm text-muted-foreground">
-                    {agent.image || "default"}
+                    {agent.image || "zynqel-base:latest"}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
@@ -215,7 +229,7 @@ function AgentFormDialog({
 }) {
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
-  const [image, setImage] = useState("");
+  const [dockerfile, setDockerfile] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -223,11 +237,11 @@ function AgentFormDialog({
     if (editing) {
       setName(editing.name);
       setCommand(editing.command?.join(" ") || "");
-      setImage(editing.image || "");
+      setDockerfile(editing.dockerfile || "");
     } else {
       setName("");
       setCommand("");
-      setImage("");
+      setDockerfile(DEFAULT_DOCKERFILE);
     }
     setError("");
   }, [editing, open]);
@@ -239,7 +253,7 @@ function AgentFormDialog({
       const cfg = {
         name,
         command: command.split(/\s+/).filter(Boolean),
-        image: image || undefined,
+        dockerfile: dockerfile.trim() || undefined,
       };
       if (editing) {
         await api.updateAgent(editing.name, cfg);
@@ -256,13 +270,13 @@ function AgentFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? "Edit Agent" : "Add Agent"}</DialogTitle>
           <DialogDescription>
             {editing
               ? "Update this custom agent configuration."
-              : "Define a custom agent to run in workspaces."}
+              : "Define a custom agent to run in workspaces. The Dockerfile builds an image with your agent CLI pre-installed."}
           </DialogDescription>
         </DialogHeader>
 
@@ -277,7 +291,8 @@ function AgentFormDialog({
               disabled={!!editing}
             />
             <p className="text-xs text-muted-foreground">
-              Lowercase letters, numbers, hyphens, underscores
+              Lowercase letters, numbers, hyphens, underscores. This is the agent
+              name you select when creating a workspace.
             </p>
           </div>
 
@@ -285,34 +300,43 @@ function AgentFormDialog({
             <Label htmlFor="agent-command">Start Command</Label>
             <Input
               id="agent-command"
-              placeholder="/usr/local/bin/aider"
+              placeholder="aider --no-auto-commits"
               value={command}
               onChange={(e) => setCommand(e.target.value)}
-              className="font-mono"
+              className="font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              The command to launch the agent CLI inside the container
+              The command to launch inside the container. This is what runs when a
+              workspace starts — typically the CLI binary installed by your Dockerfile.
+              Examples:{" "}
+              <code className="bg-muted px-1 rounded">aider</code>,{" "}
+              <code className="bg-muted px-1 rounded">codex</code>,{" "}
+              <code className="bg-muted px-1 rounded">/usr/local/bin/my-agent --flag</code>
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="agent-image">
-              Docker Image{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
-            </Label>
-            <Input
-              id="agent-image"
-              placeholder="zynqel-base:latest"
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              className="font-mono"
+            <Label htmlFor="agent-dockerfile">Dockerfile</Label>
+            <Textarea
+              id="agent-dockerfile"
+              value={dockerfile}
+              onChange={(e) => setDockerfile(e.target.value)}
+              className="font-mono text-sm min-h-[180px] resize-y"
+              placeholder={DEFAULT_DOCKERFILE}
             />
             <p className="text-xs text-muted-foreground">
-              Leave empty to use zynqel-base:latest
+              Extends <code className="bg-muted px-1 rounded">zynqel-base:latest</code>{" "}
+              which includes Node.js, Python, Git, and common dev tools.
+              Install your agent CLI here. The image is built automatically when you save.
             </p>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
+          {saving && (
+            <p className="text-sm text-muted-foreground">
+              Building Docker image... this may take a moment.
+            </p>
+          )}
         </div>
 
         <DialogFooter>
@@ -325,7 +349,7 @@ function AgentFormDialog({
           </Button>
           <Button onClick={handleSave} disabled={saving || !name || !command}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {editing ? "Save" : "Add Agent"}
+            {saving ? "Building..." : editing ? "Save" : "Add Agent"}
           </Button>
         </DialogFooter>
       </DialogContent>

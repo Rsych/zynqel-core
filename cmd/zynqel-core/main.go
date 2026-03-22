@@ -72,7 +72,7 @@ func main() {
 		webFS = os.DirFS("web")
 		log.Println("serving dev console from ./web")
 	}
-	srv := server.New(sm, agentStore, webFS)
+	srv := server.New(sm, agentStore, sb, webFS)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%s", port),

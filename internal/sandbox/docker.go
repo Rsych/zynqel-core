@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -301,6 +303,45 @@ func (d *DockerSandbox) Commit(ctx context.Context, containerID, imageName strin
 func (d *DockerSandbox) ImageExists(ctx context.Context, imageName string) bool {
 	_, err := d.cli.ImageInspect(ctx, imageName)
 	return err == nil
+}
+
+// BuildImage builds a Docker image from a Dockerfile string.
+func (d *DockerSandbox) BuildImage(ctx context.Context, dockerfile, imageName string) error {
+	// Create a tar archive with just the Dockerfile.
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: "Dockerfile",
+		Mode: 0o644,
+		Size: int64(len(dockerfile)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("tar header: %w", err)
+	}
+	if _, err := tw.Write([]byte(dockerfile)); err != nil {
+		return fmt.Errorf("tar write: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("tar close: %w", err)
+	}
+
+	log.Printf("building image %s ...", imageName)
+	resp, err := d.cli.ImageBuild(ctx, &buf, types.ImageBuildOptions{
+		Tags:       []string{imageName},
+		Dockerfile: "Dockerfile",
+		Remove:     true,
+	})
+	if err != nil {
+		return fmt.Errorf("build image %s: %w", imageName, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Drain build output to complete the build.
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return fmt.Errorf("build image %s: %w", imageName, err)
+	}
+	log.Printf("built image %s", imageName)
+	return nil
 }
 
 // ListVolumes returns all Docker volumes matching the given name prefix.

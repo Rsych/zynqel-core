@@ -39,6 +39,7 @@ export interface AgentConfig {
   builtin: boolean;
   command?: string[];
   image?: string;
+  dockerfile?: string;
   env?: Record<string, string>;
 }
 

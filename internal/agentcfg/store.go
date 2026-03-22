@@ -22,12 +22,13 @@ var builtinNames = map[string]bool{
 
 // AgentConfig defines a custom agent that can be run in a container.
 type AgentConfig struct {
-	Name      string            `json:"name"`
-	Command   []string          `json:"command"`
-	Image     string            `json:"image,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	Name       string            `json:"name"`
+	Command    []string          `json:"command"`
+	Image      string            `json:"image,omitempty"`
+	Dockerfile string            `json:"dockerfile,omitempty"` // custom Dockerfile content (extends zynqel-base)
+	Env        map[string]string `json:"env,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
 type storeData struct {
