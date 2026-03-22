@@ -45,8 +45,8 @@ export function WorkspaceList({
       ]);
       setSessions(sessData || []);
       setWorkspaces(wsData || []);
-    } catch {
-      // silently retry on next interval
+    } catch (err) {
+      console.error("Failed to fetch workspaces:", err);
     } finally {
       setLoading(false);
     }

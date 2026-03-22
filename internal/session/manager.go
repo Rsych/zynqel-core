@@ -178,13 +178,16 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		}
 	}
 
-	// Show welcome banner with available agent info.
+	// Show welcome banner with available agent info (idempotent — checks before appending).
 	if spec.Agent != "" && spec.Agent != "shell" {
+		marker := fmt.Sprintf("# zynqel-agent:%s", spec.Agent)
 		welcomeCmd := fmt.Sprintf(
-			`echo '  echo ""' >> /root/.bashrc; `+
-				`echo '  echo "  \033[1;32m▸ %s\033[0m is installed. Run \033[1m%s\033[0m to start."' >> /root/.bashrc; `+
-				`echo '  echo ""' >> /root/.bashrc`,
-			spec.Agent, spec.Agent)
+			`grep -q '%s' /root/.bashrc 2>/dev/null || (`+
+				`echo '%s' >> /root/.bashrc; `+
+				`echo 'echo ""' >> /root/.bashrc; `+
+				`echo 'echo "  \033[1;32m▸ %s\033[0m is installed. Run \033[1m%s\033[0m to start."' >> /root/.bashrc; `+
+				`echo 'echo ""' >> /root/.bashrc)`,
+			marker, marker, spec.Agent, spec.Agent)
 		_, _ = m.sandbox.ExecRun(ctx, containerID, []string{"sh", "-c", welcomeCmd})
 	}
 
@@ -600,11 +603,8 @@ func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec S
 	}
 
 	// Clone the repo into /workspace.
-	cloneURL := spec.RepoURL
-	if spec.GitToken != "" {
-		cloneURL = injectTokenInURL(spec.RepoURL, spec.GitToken)
-	}
-	cloneCmd := []string{"git", "clone", cloneURL, "/workspace"}
+	// Credentials are handled by the credential helper set up in setupGitCredentials.
+	cloneCmd := []string{"git", "clone", spec.RepoURL, "/workspace"}
 	if _, err := m.sandbox.ExecRun(ctx, containerID, cloneCmd); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
@@ -661,17 +661,6 @@ func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, s
 	}
 
 	return nil
-}
-
-// injectTokenInURL adds a token to an HTTPS git URL.
-// https://github.com/user/repo.git → https://x-access-token:TOKEN@github.com/user/repo.git
-func injectTokenInURL(repoURL, token string) string {
-	u, err := url.Parse(repoURL)
-	if err != nil || u.Scheme != "https" {
-		return repoURL
-	}
-	u.User = url.UserPassword("x-access-token", token)
-	return u.String()
 }
 
 func generateID() (string, error) {
