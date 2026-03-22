@@ -1,13 +1,14 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Play, ArrowLeft, Loader2, CircleStop, AlertTriangle } from "lucide-react";
+import { Play, ArrowLeft, Loader2, CircleStop, AlertTriangle, Trash2 } from "lucide-react";
 
 interface SessionOverlayProps {
   status: "stopped" | "error";
   error?: string;
   restarting: boolean;
   onRestart: () => void;
+  onRemove: () => void;
   onBack: () => void;
 }
 
@@ -16,6 +17,7 @@ export function SessionOverlay({
   error,
   restarting,
   onRestart,
+  onRemove,
   onBack,
 }: SessionOverlayProps) {
   const isError = status === "error";
@@ -70,10 +72,18 @@ export function SessionOverlay({
             </p>
 
             {/* Actions */}
-            <div className="flex items-center justify-center gap-3 mt-6">
+            <div className="flex items-center justify-center gap-2 mt-6">
               <Button variant="outline" size="sm" onClick={onBack}>
                 <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
                 Back
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={onRemove}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Remove
               </Button>
               <Button size="sm" onClick={onRestart} disabled={restarting}>
                 {restarting ? (

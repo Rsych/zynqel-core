@@ -99,11 +99,9 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 
 	// Image priority: committed workspace (has auth/packages) > spec.Image > adapter > default
 	img := defaultImage
-	var cmd []string
+	cmd := []string{"/bin/bash"} // Always start as shell — user launches agent manually.
 	if agentAdapter != nil {
 		img = agentAdapter.Image()
-	} else {
-		cmd = []string{"/bin/bash"}
 	}
 	if spec.Image != "" {
 		img = spec.Image
@@ -167,28 +165,21 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		}
 	}
 
-	// If an adapter is configured, start the agent inside the container.
-	var adapterPTY sandbox.PTYConn
-	if agentAdapter != nil {
-		adapterPTY, err = agentAdapter.Start(ctx, containerID)
-		if err != nil {
-			log.Printf("adapter start failed, cleaning up container %s: %v", shortid.Format(containerID), err)
-			m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
-			return nil, fmt.Errorf("start agent adapter: %w", err)
-		}
+	// Show welcome banner with available agent info.
+	if spec.Agent != "" && spec.Agent != "shell" {
+		welcomeCmd := fmt.Sprintf(
+			`echo '  echo ""' >> /root/.bashrc; `+
+				`echo '  echo "  \033[1;32m▸ %s\033[0m is installed. Run \033[1m%s\033[0m to start."' >> /root/.bashrc; `+
+				`echo '  echo ""' >> /root/.bashrc`,
+			spec.Agent, spec.Agent)
+		_, _ = m.sandbox.ExecRun(ctx, containerID, []string{"sh", "-c", welcomeCmd})
 	}
 
-	// Create the broadcaster — single PTY reader with fan-out to WS clients.
-	var broadcastConn sandbox.PTYConn
-	if adapterPTY != nil {
-		broadcastConn = adapterPTY
-	} else {
-		// Shell sessions: attach once, share via broadcaster.
-		broadcastConn, err = m.sandbox.Attach(ctx, containerID)
-		if err != nil {
-			m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
-			return nil, fmt.Errorf("attach for broadcast: %w", err)
-		}
+	// Always start as shell — user launches agent tools manually.
+	broadcastConn, err := m.sandbox.Attach(ctx, containerID)
+	if err != nil {
+		m.cleanupSession(ctx, &Session{ID: id, ContainerID: containerID})
+		return nil, fmt.Errorf("attach for broadcast: %w", err)
 	}
 
 	s := &Session{
@@ -197,28 +188,9 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		Status:      StatusRunning,
 		ContainerID: containerID,
 		CreatedAt:   time.Now(),
-		adapter:     agentAdapter,
-		adapterPTY:  adapterPTY,
 	}
 	s.TouchActivity()
-	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, func() {
-		// Agent process exited — fall back to shell if container is still running.
-		if s.Status != StatusRunning {
-			return
-		}
-		log.Printf("session %s: agent exited, falling back to shell", s.ID)
-		shellConn, err := m.sandbox.Exec(context.Background(), s.ContainerID, []string{"/bin/bash"})
-		if err != nil {
-			log.Printf("session %s: failed to start fallback shell: %v", s.ID, err)
-			now := time.Now()
-			s.Status = StatusStopped
-			s.StoppedAt = &now
-			return
-		}
-		s.adapter = nil
-		s.adapterPTY = nil
-		s.broadcaster = NewBroadcaster(shellConn, DefaultBufferSize, s.TouchActivity, nil)
-	})
+	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil)
 
 	m.mu.Lock()
 	// Recheck under write lock to handle concurrent creates.
@@ -294,11 +266,6 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		if s.adapter != nil {
-			if err := s.adapter.Stop(); err != nil {
-				log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
-			}
-		}
 		if s.broadcaster != nil {
 			s.broadcaster.Close()
 		}
@@ -361,29 +328,6 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		m.cleanupSession(ctx, s)
 	}
 	return nil
-}
-
-// Attach returns a PTY connection for the given session.
-// If the session has an agent adapter, returns the adapter's PTY.
-// Otherwise, attaches directly to the container's main process.
-func (m *Manager) Attach(ctx context.Context, id string) (sandbox.PTYConn, error) {
-	m.mu.RLock()
-	s, ok := m.sessions[id]
-	m.mu.RUnlock()
-
-	if !ok {
-		return nil, fmt.Errorf("session not found: %s", id)
-	}
-	if s.Status != StatusRunning {
-		return nil, fmt.Errorf("session %s is not running", id)
-	}
-
-	// If an adapter is active, return its exec PTY.
-	if s.adapterPTY != nil {
-		return s.adapterPTY, nil
-	}
-
-	return m.sandbox.Attach(ctx, s.ContainerID)
 }
 
 // Subscribe returns a broadcast subscription for the session's PTY output.
@@ -529,21 +473,12 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	}
 }
 
-// cleanupSession stops the adapter, broadcaster, and container.
-// Order matters: adapter sends SIGTERM/SIGKILL first, then broadcaster
-// closes the PTY (they share the same connection).
+// cleanupSession stops the broadcaster and container.
 // Safe to call multiple times — guarded by atomic flag.
 func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
-		// Already cleaned up (by Stop goroutine or previous call).
-		// Just remove the container in case it's still around.
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
 		return
-	}
-	if s.adapter != nil {
-		if err := s.adapter.Stop(); err != nil {
-			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
-		}
 	}
 	if s.broadcaster != nil {
 		s.broadcaster.Close()

@@ -219,6 +219,7 @@ function WorkspaceDetail() {
                   error={session.error}
                   restarting={restarting}
                   onRestart={handleRestart}
+                  onRemove={() => setConfirmDelete(true)}
                   onBack={() => router.push("/")}
                 />
               )}

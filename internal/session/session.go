@@ -4,9 +4,6 @@ import (
 	"encoding/json"
 	"sync/atomic"
 	"time"
-
-	"github.com/Rsych/zynqel-core/internal/adapter"
-	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
 
 // Status represents the lifecycle state of a session.
@@ -58,11 +55,9 @@ type Session struct {
 	Error       string      `json:"error,omitempty"`
 
 	// Unexported — managed by session.Manager, not serialized.
-	adapter      adapter.AgentAdapter // nil for bare shell sessions
-	adapterPTY   sandbox.PTYConn      // PTY from adapter's exec, nil for shell
-	broadcaster  *Broadcaster         // output fan-out + ring buffer
-	lastActivity int64                // unix timestamp, updated atomically
-	cleaned      int32                // atomic flag: 1 = cleanup done
+	broadcaster  *Broadcaster // output fan-out + ring buffer
+	lastActivity int64        // unix timestamp, updated atomically
+	cleaned      int32        // atomic flag: 1 = cleanup done
 }
 
 // TouchActivity records current time as last activity.
