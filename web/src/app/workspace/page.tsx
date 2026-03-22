@@ -132,7 +132,7 @@ function WorkspaceDetail() {
   const isRunning = session.status === "running";
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="mx-auto max-w-7xl flex items-center justify-between px-6 h-14">

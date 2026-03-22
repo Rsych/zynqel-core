@@ -12,6 +12,8 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 3;
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">(
     "connecting"
   );
@@ -124,6 +126,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
 
       ws.onopen = () => {
         if (disposed) return;
+        reconnectAttempts.current = 0;
         setStatus("connected");
         ws.send(
           JSON.stringify({
@@ -147,7 +150,12 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
 
       ws.onclose = () => {
         if (disposed) return;
-        // Auto-reconnect after 1s (agent may have exited → shell fallback).
+        reconnectAttempts.current++;
+        if (reconnectAttempts.current > maxReconnectAttempts) {
+          setStatus("disconnected");
+          return;
+        }
+        // Auto-reconnect after 1s.
         setStatus("connecting");
         reconnectTimer.current = setTimeout(() => {
           if (!disposed) connect(term);
@@ -177,7 +185,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
           <span className="text-sm text-muted-foreground">Connecting...</span>
         </div>
       )}
-      <div ref={containerRef} className="h-full w-full" />
+      <div ref={containerRef} className="h-full w-full overflow-hidden" />
     </div>
   );
 });

@@ -67,7 +67,20 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		for _, s := range m.sessions {
 			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusRunning {
 				m.mu.RUnlock()
+				// Return existing session — workspace already has a running session.
 				return s, nil
+			}
+		}
+	}
+	// Also check stopped sessions with same workspace — clean them up first.
+	if spec.WorkspaceID != "" {
+		for id, s := range m.sessions {
+			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusStopped {
+				m.mu.RUnlock()
+				// Remove the old stopped session to make room.
+				_ = m.Delete(context.Background(), id)
+				m.mu.RLock()
+				break
 			}
 		}
 	}
