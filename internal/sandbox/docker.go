@@ -210,6 +210,7 @@ func (d *DockerSandbox) Exec(ctx context.Context, id string, cmd []string) (PTYC
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          true,
+		Env:          []string{"TERM=xterm-256color"},
 	}
 	execResp, err := d.cli.ContainerExecCreate(ctx, id, execCfg)
 	if err != nil {
