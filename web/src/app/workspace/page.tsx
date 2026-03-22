@@ -8,6 +8,7 @@ import type { Session } from "@/lib/types";
 import { toast } from "sonner";
 import { TerminalView } from "@/components/terminal-view";
 import { ResourceBars } from "@/components/resource-bars";
+import { SessionOverlay } from "@/components/session-overlay";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,12 @@ function WorkspaceDetail() {
       .then(setSession)
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Poll session status to detect stop/error from outside (agent exit, timeout).
+    const interval = setInterval(() => {
+      api.getSession(id).then(setSession).catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
   }, [id]);
 
   const handleStop = async () => {
@@ -204,15 +211,18 @@ function WorkspaceDetail() {
           </div>
 
           <TabsContent value="terminal" className="flex-1 m-0 p-0">
-            {isRunning ? (
-              <div className="h-[calc(100vh-7.5rem)]">
-                <TerminalView sessionId={id} />
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-64 text-muted-foreground">
-                Session is not running
-              </div>
-            )}
+            <div className="relative h-[calc(100vh-7.5rem)]">
+              <TerminalView sessionId={id} />
+              {!isRunning && (
+                <SessionOverlay
+                  status={session.status as "stopped" | "error"}
+                  error={session.error}
+                  restarting={restarting}
+                  onRestart={handleRestart}
+                  onBack={() => router.push("/")}
+                />
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="resources" className="m-0 px-6 py-4">
