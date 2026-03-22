@@ -284,22 +284,26 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 // Restart creates a new session from a stopped session's spec.
 // Removes the old session and creates a fresh one with the same workspace.
 func (m *Manager) Restart(ctx context.Context, id string) (*Session, error) {
-	m.mu.RLock()
+	m.mu.Lock()
 	s, ok := m.sessions[id]
-	m.mu.RUnlock()
-
 	if !ok {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("session not found: %s", id)
 	}
 
 	spec := s.Spec
+	delete(m.sessions, id)
+	m.mu.Unlock()
 
-	// Remove the old session first.
-	if err := m.Delete(ctx, id); err != nil {
-		return nil, fmt.Errorf("remove old session: %w", err)
+	// For already-stopped sessions, just remove the container (don't re-stop/re-commit).
+	// For running sessions, do full cleanup.
+	if s.Status == StatusStopped {
+		// Container was already stopped by Stop(). Just remove it.
+		_ = m.sandbox.Remove(ctx, s.ContainerID)
+	} else {
+		m.cleanupSession(ctx, s)
 	}
 
-	// Create a fresh session with the same spec.
 	return m.Create(ctx, spec)
 }
 
@@ -314,7 +318,12 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
-	m.cleanupSession(ctx, s)
+	if s.Status == StatusStopped {
+		// Already stopped — just remove the container.
+		_ = m.sandbox.Remove(ctx, s.ContainerID)
+	} else {
+		m.cleanupSession(ctx, s)
+	}
 	return nil
 }
 

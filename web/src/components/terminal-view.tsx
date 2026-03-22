@@ -69,8 +69,7 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
         ws.send(
           JSON.stringify({
             type: "pty.resize",
-            cols: term.cols,
-            rows: term.rows,
+            data: { cols: term.cols, rows: term.rows },
           })
         );
       };
@@ -115,8 +114,7 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
           ws.send(
             JSON.stringify({
               type: "pty.resize",
-              cols: term.cols,
-              rows: term.rows,
+              data: { cols: term.cols, rows: term.rows },
             })
           );
         }
