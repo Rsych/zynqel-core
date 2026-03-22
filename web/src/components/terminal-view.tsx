@@ -74,11 +74,15 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
         );
       };
 
+      const utf8Decoder = new TextDecoder();
+
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
           if (msg.type === "pty.output" && msg.data) {
-            term.write(atob(msg.data));
+            // Decode base64 → bytes → UTF-8 (atob returns Latin-1, breaking multi-byte chars).
+            const bytes = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
+            term.write(utf8Decoder.decode(bytes));
           } else if (msg.type === "session.state") {
             // initial state
           }
