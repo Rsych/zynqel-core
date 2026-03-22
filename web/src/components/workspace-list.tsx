@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "./confirm-dialog";
 import { Search, Inbox } from "lucide-react";
 
 export function WorkspaceList({
@@ -24,6 +25,10 @@ export function WorkspaceList({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [confirmAction, setConfirmAction] = useState<{
+    type: "stop" | "delete";
+    id: string;
+  } | null>(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -43,12 +48,18 @@ export function WorkspaceList({
   }, [fetchSessions]);
 
   const handleStop = async (id: string) => {
+    // Instant feedback — mark as stopped before waiting for backend.
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, status: "stopped" as const } : s))
+    );
     try {
       const updated = await api.stopSession(id);
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? updated : s))
       );
     } catch (err) {
+      // Revert on failure — refetch to get real state.
+      fetchSessions();
       console.error("Failed to stop session:", err);
     }
   };
@@ -133,10 +144,39 @@ export function WorkspaceList({
       ) : (
         <div className="grid gap-3">
           {filtered.map((s) => (
-            <WorkspaceCard key={s.id} session={s} onStop={handleStop} onDelete={handleDelete} />
+            <WorkspaceCard
+              key={s.id}
+              session={s}
+              onStop={(id) => setConfirmAction({ type: "stop", id })}
+              onDelete={(id) => setConfirmAction({ type: "delete", id })}
+            />
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmAction?.type === "stop"}
+        onOpenChange={(open) => !open && setConfirmAction(null)}
+        title="Stop workspace?"
+        description="The workspace will be stopped and its state saved. You can resume it later."
+        confirmLabel="Stop"
+        onConfirm={() => {
+          if (confirmAction) handleStop(confirmAction.id);
+          setConfirmAction(null);
+        }}
+      />
+      <ConfirmDialog
+        open={confirmAction?.type === "delete"}
+        onOpenChange={(open) => !open && setConfirmAction(null)}
+        title="Remove workspace?"
+        description="This will stop the session and remove the container. Workspace volume data is preserved."
+        confirmLabel="Remove"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmAction) handleDelete(confirmAction.id);
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 }

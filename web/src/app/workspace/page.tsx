@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { TerminalView } from "@/components/terminal-view";
 import { ResourceBars } from "@/components/resource-bars";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,6 +38,8 @@ function WorkspaceDetail() {
   const id = searchParams.get("id");
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -51,11 +54,15 @@ function WorkspaceDetail() {
   }, [id]);
 
   const handleStop = async () => {
-    if (!id) return;
+    if (!id || !session) return;
+    // Instant feedback — update UI before waiting for backend.
+    setSession({ ...session, status: "stopped" });
     try {
       const updated = await api.stopSession(id);
       setSession(updated);
     } catch (err) {
+      // Revert on failure.
+      setSession(session);
       console.error("Failed to stop session:", err);
     }
   };
@@ -124,12 +131,12 @@ function WorkspaceDetail() {
 
           <div className="flex items-center gap-2">
             {isRunning && (
-              <Button variant="secondary" size="sm" onClick={handleStop}>
+              <Button variant="secondary" size="sm" onClick={() => setConfirmStop(true)}>
                 <Square className="h-3.5 w-3.5 mr-1.5" />
                 Stop
               </Button>
             )}
-            <Button variant="destructive" size="sm" onClick={handleDelete}>
+            <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
               <Trash2 className="h-3.5 w-3.5 mr-1.5" />
               Remove
             </Button>
@@ -248,6 +255,24 @@ function WorkspaceDetail() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <ConfirmDialog
+        open={confirmStop}
+        onOpenChange={setConfirmStop}
+        title="Stop workspace?"
+        description="The workspace will be stopped and its state saved. You can resume it later by creating a new session with the same workspace ID."
+        confirmLabel="Stop"
+        onConfirm={handleStop}
+      />
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Remove workspace?"
+        description="This will stop the session and remove the container. Workspace data on the volume is preserved, but the container and any uncommitted state will be lost."
+        confirmLabel="Remove"
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

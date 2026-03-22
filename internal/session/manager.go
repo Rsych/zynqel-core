@@ -235,8 +235,8 @@ func (m *Manager) List() []*Session {
 }
 
 // Stop gracefully stops a running session but keeps it in the list.
-// Commits workspace state, stops the container, sets status to stopped.
-func (m *Manager) Stop(ctx context.Context, id string) error {
+// Sets status to stopped immediately, then cleans up in the background.
+func (m *Manager) Stop(_ context.Context, id string) error {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
 	m.mu.RUnlock()
@@ -248,30 +248,36 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 		return fmt.Errorf("session %s is not running", id)
 	}
 
-	// Stop adapter + broadcaster.
-	if s.adapter != nil {
-		if err := s.adapter.Stop(); err != nil {
-			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
-		}
-	}
-	if s.broadcaster != nil {
-		s.broadcaster.Close()
-	}
-	// Commit workspace image.
-	if s.Spec.WorkspaceID != "" {
-		commitImage := volumePrefix + s.Spec.WorkspaceID + ":latest"
-		if err := m.sandbox.Commit(ctx, s.ContainerID, commitImage); err != nil {
-			log.Printf("warning: failed to commit workspace %s: %v", s.Spec.WorkspaceID, err)
-		}
-	}
-	// Stop container (but don't remove).
-	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
-		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
-	}
-
+	// Mark stopped immediately so the API responds fast.
 	now := time.Now()
 	s.Status = StatusStopped
 	s.StoppedAt = &now
+
+	// Heavy cleanup in background — adapter stop, commit, container stop.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if s.adapter != nil {
+			if err := s.adapter.Stop(); err != nil {
+				log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
+			}
+		}
+		if s.broadcaster != nil {
+			s.broadcaster.Close()
+		}
+		if s.Spec.WorkspaceID != "" {
+			commitImage := volumePrefix + s.Spec.WorkspaceID + ":latest"
+			if err := m.sandbox.Commit(ctx, s.ContainerID, commitImage); err != nil {
+				log.Printf("warning: failed to commit workspace %s: %v", s.Spec.WorkspaceID, err)
+			}
+		}
+		if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
+			log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
+		}
+		log.Printf("session %s stopped", s.ID)
+	}()
+
 	return nil
 }
 
