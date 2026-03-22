@@ -7,12 +7,15 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">(
     "connecting"
   );
 
   useEffect(() => {
     let disposed = false;
+    let fitAddon: import("@xterm/addon-fit").FitAddon | null = null;
+    let resizeObserver: ResizeObserver | null = null;
 
     async function init() {
       const { Terminal } = await import("@xterm/xterm");
@@ -50,58 +53,17 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
         },
       });
 
-      const fitAddon = new FitAddon();
+      fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.loadAddon(new WebLinksAddon());
       term.open(containerRef.current);
       fitAddon.fit();
       termRef.current = term;
 
-      // WebSocket connection
-      const url = api.streamURL(sessionId);
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (disposed) return;
-        setStatus("connected");
-        // Send resize
-        ws.send(
-          JSON.stringify({
-            type: "pty.resize",
-            data: { cols: term.cols, rows: term.rows },
-          })
-        );
-      };
-
-      const utf8Decoder = new TextDecoder();
-
-      ws.onmessage = (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
-          if (msg.type === "pty.output" && msg.data) {
-            // Decode base64 → bytes → UTF-8 (atob returns Latin-1, breaking multi-byte chars).
-            const bytes = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
-            term.write(utf8Decoder.decode(bytes));
-          } else if (msg.type === "session.state") {
-            // initial state
-          }
-        } catch {
-          // ignore non-JSON messages
-        }
-      };
-
-      ws.onclose = () => {
-        if (!disposed) setStatus("disconnected");
-      };
-
-      ws.onerror = () => {
-        if (!disposed) setStatus("disconnected");
-      };
-
       // Terminal input → WebSocket
       term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(
             JSON.stringify({
               type: "pty.input",
@@ -112,9 +74,10 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
       });
 
       // Resize handling
-      const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
-        if (ws.readyState === WebSocket.OPEN) {
+      resizeObserver = new ResizeObserver(() => {
+        fitAddon?.fit();
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(
             JSON.stringify({
               type: "pty.resize",
@@ -127,16 +90,62 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
         resizeObserver.observe(containerRef.current);
       }
 
-      return () => {
-        resizeObserver.disconnect();
+      // Start WebSocket connection (with auto-reconnect).
+      connect(term);
+    }
+
+    function connect(term: import("@xterm/xterm").Terminal) {
+      if (disposed) return;
+
+      const url = api.streamURL(sessionId);
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      const utf8Decoder = new TextDecoder();
+
+      ws.onopen = () => {
+        if (disposed) return;
+        setStatus("connected");
+        ws.send(
+          JSON.stringify({
+            type: "pty.resize",
+            data: { cols: term.cols, rows: term.rows },
+          })
+        );
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === "pty.output" && msg.data) {
+            const bytes = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
+            term.write(utf8Decoder.decode(bytes));
+          }
+        } catch {
+          // ignore non-JSON
+        }
+      };
+
+      ws.onclose = () => {
+        if (disposed) return;
+        // Auto-reconnect after 1s (agent may have exited → shell fallback).
+        setStatus("connecting");
+        reconnectTimer.current = setTimeout(() => {
+          if (!disposed) connect(term);
+        }, 1000);
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after onerror
       };
     }
 
-    const cleanup = init();
+    init();
 
     return () => {
       disposed = true;
-      cleanup.then((fn) => fn?.());
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      resizeObserver?.disconnect();
       wsRef.current?.close();
       termRef.current?.dispose();
     };
@@ -147,11 +156,6 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
       {status === "connecting" && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
           <span className="text-sm text-muted-foreground">Connecting...</span>
-        </div>
-      )}
-      {status === "disconnected" && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
-          <span className="text-sm text-destructive">Disconnected</span>
         </div>
       )}
       <div ref={containerRef} className="h-full w-full" />

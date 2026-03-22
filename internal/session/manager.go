@@ -202,13 +202,22 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	}
 	s.TouchActivity()
 	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, func() {
-		// Agent process exited — mark session as stopped.
-		if s.Status == StatusRunning {
+		// Agent process exited — fall back to shell if container is still running.
+		if s.Status != StatusRunning {
+			return
+		}
+		log.Printf("session %s: agent exited, falling back to shell", s.ID)
+		shellConn, err := m.sandbox.Exec(context.Background(), s.ContainerID, []string{"/bin/bash"})
+		if err != nil {
+			log.Printf("session %s: failed to start fallback shell: %v", s.ID, err)
 			now := time.Now()
 			s.Status = StatusStopped
 			s.StoppedAt = &now
-			log.Printf("session %s: agent exited, marking stopped", s.ID)
+			return
 		}
+		s.adapter = nil
+		s.adapterPTY = nil
+		s.broadcaster = NewBroadcaster(shellConn, DefaultBufferSize, s.TouchActivity, nil)
 	})
 
 	m.mu.Lock()
