@@ -49,6 +49,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
       const term = new Terminal({
         cursorBlink: true,
         fontSize: 13,
+        scrollback: 5000,
         fontFamily: "'Menlo', 'DejaVu Sans Mono', 'Consolas', 'Liberation Mono', monospace",
         theme: {
           background: "#0a0a0a",
@@ -185,7 +186,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
           <span className="text-sm text-muted-foreground">Connecting...</span>
         </div>
       )}
-      <div ref={containerRef} className="h-full w-full overflow-hidden" />
+      <div ref={containerRef} className="h-full w-full overflow-hidden p-2" />
     </div>
   );
 });
