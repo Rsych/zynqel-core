@@ -50,6 +50,16 @@ function WorkspaceDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  const handleStop = async () => {
+    if (!id) return;
+    try {
+      const updated = await api.stopSession(id);
+      setSession(updated);
+    } catch (err) {
+      console.error("Failed to stop session:", err);
+    }
+  };
+
   const handleDelete = async () => {
     if (!id) return;
     try {
@@ -113,18 +123,15 @@ function WorkspaceDetail() {
           </div>
 
           <div className="flex items-center gap-2">
+            {isRunning && (
+              <Button variant="secondary" size="sm" onClick={handleStop}>
+                <Square className="h-3.5 w-3.5 mr-1.5" />
+                Stop
+              </Button>
+            )}
             <Button variant="destructive" size="sm" onClick={handleDelete}>
-              {isRunning ? (
-                <>
-                  <Square className="h-3.5 w-3.5 mr-1.5" />
-                  Stop
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  Delete
-                </>
-              )}
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              Remove
             </Button>
           </div>
         </div>

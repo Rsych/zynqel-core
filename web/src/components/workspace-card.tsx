@@ -8,6 +8,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreVertical, ExternalLink, Square, Trash2 } from "lucide-react";
@@ -35,10 +36,11 @@ function timeAgo(dateStr: string): string {
 
 interface WorkspaceCardProps {
   session: Session;
+  onStop: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function WorkspaceCard({ session, onDelete }: WorkspaceCardProps) {
+export function WorkspaceCard({ session, onStop, onDelete }: WorkspaceCardProps) {
   const status = statusConfig[session.status] || statusConfig.stopped;
   const isRunning = session.status === "running";
 
@@ -101,21 +103,21 @@ export function WorkspaceCard({ session, onDelete }: WorkspaceCardProps) {
                     </Link>
                   </DropdownMenuItem>
                 )}
+                {isRunning && (
+                  <>
+                    <DropdownMenuItem onClick={() => onStop(session.id)}>
+                      <Square className="h-4 w-4 mr-2" />
+                      Stop
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={() => onDelete(session.id)}
                   className="text-destructive focus:text-destructive"
                 >
-                  {isRunning ? (
-                    <>
-                      <Square className="h-4 w-4 mr-2" />
-                      Stop & Remove
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </>
-                  )}
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Remove
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

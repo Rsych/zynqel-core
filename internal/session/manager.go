@@ -234,6 +234,48 @@ func (m *Manager) List() []*Session {
 	return result
 }
 
+// Stop gracefully stops a running session but keeps it in the list.
+// Commits workspace state, stops the container, sets status to stopped.
+func (m *Manager) Stop(ctx context.Context, id string) error {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("session not found: %s", id)
+	}
+	if s.Status != StatusRunning {
+		return fmt.Errorf("session %s is not running", id)
+	}
+
+	// Stop adapter + broadcaster.
+	if s.adapter != nil {
+		if err := s.adapter.Stop(); err != nil {
+			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
+		}
+	}
+	if s.broadcaster != nil {
+		s.broadcaster.Close()
+	}
+	// Commit workspace image.
+	if s.Spec.WorkspaceID != "" {
+		commitImage := volumePrefix + s.Spec.WorkspaceID + ":latest"
+		if err := m.sandbox.Commit(ctx, s.ContainerID, commitImage); err != nil {
+			log.Printf("warning: failed to commit workspace %s: %v", s.Spec.WorkspaceID, err)
+		}
+	}
+	// Stop container (but don't remove).
+	if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
+		log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
+	}
+
+	now := time.Now()
+	s.Status = StatusStopped
+	s.StoppedAt = &now
+	return nil
+}
+
+// Delete removes a session entirely — stops it if running, then removes the container.
 func (m *Manager) Delete(ctx context.Context, id string) error {
 	m.mu.Lock()
 	s, ok := m.sessions[id]

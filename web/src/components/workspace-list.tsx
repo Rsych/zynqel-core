@@ -42,6 +42,17 @@ export function WorkspaceList({
     return () => clearInterval(interval);
   }, [fetchSessions]);
 
+  const handleStop = async (id: string) => {
+    try {
+      const updated = await api.stopSession(id);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? updated : s))
+      );
+    } catch (err) {
+      console.error("Failed to stop session:", err);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await api.deleteSession(id);
@@ -122,7 +133,7 @@ export function WorkspaceList({
       ) : (
         <div className="grid gap-3">
           {filtered.map((s) => (
-            <WorkspaceCard key={s.id} session={s} onDelete={handleDelete} />
+            <WorkspaceCard key={s.id} session={s} onStop={handleStop} onDelete={handleDelete} />
           ))}
         </div>
       )}

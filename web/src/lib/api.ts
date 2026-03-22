@@ -40,6 +40,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(spec),
     }),
+  stopSession: (id: string) =>
+    fetchJSON<Session>(`/sessions/${id}/stop`, { method: "POST" }),
   deleteSession: (id: string) =>
     fetchJSON<void>(`/sessions/${id}`, { method: "DELETE" }),
   getSessionStats: (id: string) =>

@@ -70,6 +70,19 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent) // 204 — success, no body
 }
 
+// handleStopSession gracefully stops a running session without removing it.
+func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if err := s.sessions.Stop(r.Context(), id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	sess, _ := s.sessions.Get(id)
+	writeJSON(w, http.StatusOK, sess)
+}
+
 // handleListWorkspaces returns all saved workspace volumes.
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	workspaces, err := s.sessions.ListWorkspaces(r.Context())
