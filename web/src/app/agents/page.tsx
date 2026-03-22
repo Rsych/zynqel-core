@@ -11,7 +11,7 @@ export default function AgentsPage() {
       <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="mx-auto max-w-4xl flex items-center gap-3 px-6 h-14">
           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-            <Link href="/console">
+            <Link href="/">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>

@@ -38,7 +38,7 @@ export function NavBar() {
             </div>
           )}
           <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-            <Link href="/console/agents">
+            <Link href="/agents">
               <Settings className="h-4 w-4" />
             </Link>
           </Button>

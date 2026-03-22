@@ -55,7 +55,7 @@ export function WorkspaceCard({ session, onDelete }: WorkspaceCardProps) {
                 </span>
               )}
               <Link
-                href={`/console/workspace?id=${session.id}`}
+                href={`/workspace?id=${session.id}`}
                 className="font-medium truncate hover:underline"
               >
                 {session.spec.workspace_id || session.id.slice(0, 8)}
@@ -81,7 +81,7 @@ export function WorkspaceCard({ session, onDelete }: WorkspaceCardProps) {
           <div className="flex items-center gap-1.5 shrink-0">
             {isRunning && (
               <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                <Link href={`/console/workspace?id=${session.id}`}>
+                <Link href={`/workspace?id=${session.id}`}>
                   <ExternalLink className="h-4 w-4" />
                 </Link>
               </Button>
@@ -95,7 +95,7 @@ export function WorkspaceCard({ session, onDelete }: WorkspaceCardProps) {
               <DropdownMenuContent align="end">
                 {isRunning && (
                   <DropdownMenuItem asChild>
-                    <Link href={`/console/workspace?id=${session.id}`}>
+                    <Link href={`/workspace?id=${session.id}`}>
                       <ExternalLink className="h-4 w-4 mr-2" />
                       Open Terminal
                     </Link>

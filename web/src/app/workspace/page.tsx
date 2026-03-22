@@ -54,7 +54,7 @@ function WorkspaceDetail() {
     if (!id) return;
     try {
       await api.deleteSession(id);
-      router.push("/console");
+      router.push("/");
     } catch (err) {
       console.error("Failed to delete session:", err);
     }
@@ -74,7 +74,7 @@ function WorkspaceDetail() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-lg font-medium mb-2">Session not found</p>
-          <Link href="/console" className="text-primary hover:underline text-sm">
+          <Link href="/" className="text-primary hover:underline text-sm">
             Back to workspaces
           </Link>
         </div>
@@ -92,7 +92,7 @@ function WorkspaceDetail() {
         <div className="mx-auto max-w-7xl flex items-center justify-between px-6 h-14">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-              <Link href="/console">
+              <Link href="/">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
