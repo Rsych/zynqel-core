@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { api } from "@/lib/api";
 
-export function TerminalView({ sessionId }: { sessionId: string }) {
+export interface TerminalViewHandle {
+  sendInput: (text: string) => void;
+}
+
+export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }>(function TerminalView({ sessionId }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -11,6 +15,21 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">(
     "connecting"
   );
+
+  useImperativeHandle(ref, () => ({
+    sendInput: (text: string) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "pty.input",
+            data: btoa(text),
+          })
+        );
+      }
+      termRef.current?.focus();
+    },
+  }));
 
   useEffect(() => {
     let disposed = false;
@@ -161,4 +180,4 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
       <div ref={containerRef} className="h-full w-full" />
     </div>
   );
-}
+});

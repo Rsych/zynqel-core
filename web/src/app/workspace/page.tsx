@@ -1,14 +1,15 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { toast } from "sonner";
-import { TerminalView } from "@/components/terminal-view";
+import { TerminalView, type TerminalViewHandle } from "@/components/terminal-view";
 import { ResourceBars } from "@/components/resource-bars";
 import { SessionOverlay } from "@/components/session-overlay";
+import { QuickLaunch } from "@/components/quick-launch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ function WorkspaceDetail() {
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const terminalRef = useRef<TerminalViewHandle>(null);
 
   useEffect(() => {
     if (!id) {
@@ -211,8 +213,16 @@ function WorkspaceDetail() {
           </div>
 
           <TabsContent value="terminal" className="flex-1 m-0 p-0">
+            {isRunning && session.spec.agent !== "shell" && (
+              <QuickLaunch
+                agent={session.spec.agent}
+                repoUrl={session.spec.repo_url}
+                workspaceId={session.spec.workspace_id}
+                onRunCommand={(cmd) => terminalRef.current?.sendInput(cmd)}
+              />
+            )}
             <div className="relative h-[calc(100vh-7.5rem)]">
-              <TerminalView sessionId={id} />
+              <TerminalView ref={terminalRef} sessionId={id} />
               {!isRunning && (
                 <SessionOverlay
                   status={session.status as "stopped" | "error"}
