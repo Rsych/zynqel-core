@@ -64,12 +64,12 @@ export function WorkspaceList({
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "stopped" as const } : s))
     );
-    toast.success("Workspace stopped");
     try {
       const updated = await api.stopSession(id);
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? updated : s))
       );
+      toast.success("Workspace stopped");
     } catch (err) {
       fetchData();
       toast.error("Failed to stop workspace");

@@ -55,9 +55,10 @@ type Session struct {
 	Error       string      `json:"error,omitempty"`
 
 	// Unexported — managed by session.Manager, not serialized.
-	broadcaster  *Broadcaster // output fan-out + ring buffer
-	lastActivity int64        // unix timestamp, updated atomically
-	cleaned      int32        // atomic flag: 1 = cleanup done
+	broadcaster  *Broadcaster  // output fan-out + ring buffer
+	lastActivity int64         // unix timestamp, updated atomically
+	cleaned      int32         // atomic flag: 1 = cleanup done
+	stopDone     chan struct{} // closed when background stop cleanup finishes
 }
 
 // TouchActivity records current time as last activity.

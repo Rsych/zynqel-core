@@ -53,7 +53,10 @@ func main() {
 	// Load custom agent configs.
 	dataDir := os.Getenv("ZYNQEL_DATA_DIR")
 	if dataDir == "" {
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("cannot determine home directory: %v (set ZYNQEL_DATA_DIR to override)", err)
+		}
 		dataDir = filepath.Join(home, ".zynqel")
 	}
 	agentStore := agentcfg.NewStore(filepath.Join(dataDir, "agents.json"))
@@ -63,14 +66,11 @@ func main() {
 
 	sm := session.NewManager(sb, rp, agentStore)
 
-	// Serve dashboard from web/out/ (Next.js static export) or web/ (legacy).
+	// Serve dashboard from web/out/ (Next.js static export).
 	var webFS fs.FS
 	if info, err := os.Stat("web/out"); err == nil && info.IsDir() {
 		webFS = os.DirFS("web/out")
 		log.Println("serving dashboard from web/out/")
-	} else if info, err := os.Stat("web"); err == nil && info.IsDir() {
-		webFS = os.DirFS("web")
-		log.Println("serving dev console from ./web")
 	}
 	srv := server.New(sm, agentStore, sb, webFS)
 

@@ -270,11 +270,13 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 	now := time.Now()
 	s.Status = StatusStopped
 	s.StoppedAt = &now
+	s.stopDone = make(chan struct{})
 
-	// Heavy cleanup in background — adapter stop, commit, container stop.
+	// Heavy cleanup in background — commit, then stop container.
 	go func() {
+		defer close(s.stopDone)
 		if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
-			return // already cleaned up
+			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -311,10 +313,12 @@ func (m *Manager) Restart(ctx context.Context, id string) (*Session, error) {
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
-	// For already-stopped sessions, just remove the container (don't re-stop/re-commit).
-	// For running sessions, do full cleanup.
+	// Wait for background stop cleanup to finish (commit must complete before remove).
+	if s.stopDone != nil {
+		<-s.stopDone
+	}
+
 	if s.Status == StatusStopped {
-		// Container was already stopped by Stop(). Just remove it.
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
 	} else {
 		m.cleanupSession(ctx, s)
@@ -334,8 +338,12 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	delete(m.sessions, id)
 	m.mu.Unlock()
 
+	// Wait for background stop cleanup to finish before removing.
+	if s.stopDone != nil {
+		<-s.stopDone
+	}
+
 	if s.Status == StatusStopped {
-		// Already stopped — just remove the container.
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
 	} else {
 		m.cleanupSession(ctx, s)

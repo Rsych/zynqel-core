@@ -60,19 +60,22 @@ function WorkspaceDetail() {
       .finally(() => setLoading(false));
 
     // Poll session status to detect stop/error from outside (agent exit, timeout).
+    const POLL_INTERVAL = 5000;
     const interval = setInterval(() => {
-      api.getSession(id).then(setSession).catch(() => {});
-    }, 5000);
+      api.getSession(id).then(setSession).catch((err) => {
+        console.error("Failed to poll session:", err);
+      });
+    }, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [id]);
 
   const handleStop = async () => {
     if (!id || !session) return;
     setSession({ ...session, status: "stopped" });
-    toast.success("Workspace stopped");
     try {
       const updated = await api.stopSession(id);
       setSession(updated);
+      toast.success("Workspace stopped");
     } catch (err) {
       setSession(session);
       toast.error("Failed to stop workspace");

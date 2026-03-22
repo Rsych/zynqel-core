@@ -3,6 +3,16 @@
 import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { api } from "@/lib/api";
 
+// UTF-8 safe base64 encode (btoa only handles Latin-1).
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 export interface TerminalViewHandle {
   sendInput: (text: string) => void;
 }
@@ -25,7 +35,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
         ws.send(
           JSON.stringify({
             type: "pty.input",
-            data: btoa(text),
+            data: utf8ToBase64(text),
           })
         );
       }
@@ -89,7 +99,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
           ws.send(
             JSON.stringify({
               type: "pty.input",
-              data: btoa(data),
+              data: utf8ToBase64(data),
             })
           );
         }
@@ -156,15 +166,16 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
           setStatus("disconnected");
           return;
         }
-        // Auto-reconnect after 1s.
+        // Exponential backoff: 1s, 2s, 4s.
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current - 1), 4000);
         setStatus("connecting");
         reconnectTimer.current = setTimeout(() => {
           if (!disposed) connect(term);
-        }, 1000);
+        }, delay);
       };
 
-      ws.onerror = () => {
-        // onclose will fire after onerror
+      ws.onerror = (e) => {
+        console.error("WebSocket error:", e);
       };
     }
 

@@ -15,9 +15,9 @@ import (
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // builtinNames are reserved and cannot be used for custom agents.
-var builtinNames = map[string]bool{
-	"claude": true,
-	"shell":  true,
+var builtinNames = map[string]struct{}{
+	"claude": {},
+	"shell":  {},
 }
 
 // AgentConfig defines a custom agent that can be run in a container.
@@ -134,7 +134,7 @@ func (s *Store) Put(cfg AgentConfig) error {
 
 // Delete removes a custom agent config by name.
 func (s *Store) Delete(name string) error {
-	if builtinNames[name] {
+	if _, ok := builtinNames[name]; ok {
 		return fmt.Errorf("cannot delete built-in agent %q", name)
 	}
 
@@ -170,7 +170,7 @@ func validate(cfg AgentConfig) error {
 	if !validName.MatchString(cfg.Name) {
 		return fmt.Errorf("invalid agent name %q: must be lowercase alphanumeric, hyphens, underscores", cfg.Name)
 	}
-	if builtinNames[cfg.Name] {
+	if _, ok := builtinNames[cfg.Name]; ok {
 		return fmt.Errorf("cannot use reserved name %q", cfg.Name)
 	}
 	if len(cfg.Command) == 0 {
