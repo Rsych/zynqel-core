@@ -62,6 +62,7 @@ type Session struct {
 	adapterPTY   sandbox.PTYConn      // PTY from adapter's exec, nil for shell
 	broadcaster  *Broadcaster         // output fan-out + ring buffer
 	lastActivity int64                // unix timestamp, updated atomically
+	cleaned      int32                // atomic flag: 1 = cleanup done
 }
 
 // TouchActivity records current time as last activity.

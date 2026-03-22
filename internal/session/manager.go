@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Rsych/zynqel-core/internal/adapter"
@@ -200,7 +201,15 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		adapterPTY:  adapterPTY,
 	}
 	s.TouchActivity()
-	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity)
+	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, func() {
+		// Agent process exited — mark session as stopped.
+		if s.Status == StatusRunning {
+			now := time.Now()
+			s.Status = StatusStopped
+			s.StoppedAt = &now
+			log.Printf("session %s: agent exited, marking stopped", s.ID)
+		}
+	})
 
 	m.mu.Lock()
 	// Recheck under write lock to handle concurrent creates.
@@ -270,6 +279,9 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 
 	// Heavy cleanup in background — adapter stop, commit, container stop.
 	go func() {
+		if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
+			return // already cleaned up
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -511,7 +523,14 @@ func (m *Manager) Shutdown(ctx context.Context) {
 // cleanupSession stops the adapter, broadcaster, and container.
 // Order matters: adapter sends SIGTERM/SIGKILL first, then broadcaster
 // closes the PTY (they share the same connection).
+// Safe to call multiple times — guarded by atomic flag.
 func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
+	if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
+		// Already cleaned up (by Stop goroutine or previous call).
+		// Just remove the container in case it's still around.
+		_ = m.sandbox.Remove(ctx, s.ContainerID)
+		return
+	}
 	if s.adapter != nil {
 		if err := s.adapter.Stop(); err != nil {
 			log.Printf("warning: failed to stop adapter for session %s: %v", s.ID, err)
