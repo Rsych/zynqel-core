@@ -184,8 +184,8 @@ function WorkspaceDetail() {
       </header>
 
       {/* Content */}
-      <div className="flex-1 flex flex-col">
-        <Tabs defaultValue="terminal" className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <Tabs defaultValue="terminal" className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border px-6">
             <TabsList className="bg-transparent h-10 p-0 gap-4">
               <TabsTrigger
@@ -212,7 +212,7 @@ function WorkspaceDetail() {
             </TabsList>
           </div>
 
-          <TabsContent value="terminal" className="flex-1 m-0 p-0">
+          <TabsContent value="terminal" className="flex-1 m-0 p-0 flex flex-col overflow-hidden">
             {isRunning && session.spec.agent !== "shell" && (
               <QuickLaunch
                 agent={session.spec.agent}
@@ -221,7 +221,7 @@ function WorkspaceDetail() {
                 onRunCommand={(cmd) => terminalRef.current?.sendInput(cmd)}
               />
             )}
-            <div className="relative h-[calc(100vh-7.5rem)]">
+            <div className="relative flex-1 min-h-0">
               <TerminalView ref={terminalRef} sessionId={id} />
               {!isRunning && (
                 <SessionOverlay
