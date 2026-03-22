@@ -1,47 +1,56 @@
-.PHONY: build test lint images run clean web-dev web-build web-install
+.PHONY: build test lint images run clean dev web-install web-dev web-build
 
-# Build the Go binary
-build:
+# --- Production: single binary serves everything ---
+
+# Build Next.js static export + Go binary
+build: web-build
 	go build -o bin/zynqel-core ./cmd/zynqel-core
 
-# Run all tests with race detector
+# Build and run (dashboard + API on :8080)
+run: build images
+	./bin/zynqel-core
+
+# --- Development: hot-reload frontend + Go backend ---
+
+# Run both servers (Next.js :3000 + Go :8080)
+dev:
+	@echo "Starting Go backend on :8080 and Next.js on :3000..."
+	@echo "Open http://localhost:3000/console"
+	@trap 'kill 0' EXIT; \
+		go run ./cmd/zynqel-core & \
+		cd web && npm run dev & \
+		wait
+
+# --- CI ---
+
 test:
 	go test -race ./... -timeout 600s
 
-# Run CI checks (same as GitHub Actions)
 lint:
 	gofmt -s -l .
 	go vet ./...
 	$(shell go env GOPATH)/bin/golangci-lint run ./...
 
-# Build all Docker images
+# --- Docker images ---
+
 images:
 	docker build -t zynqel-base:latest images/base/
 	docker build -t zynqel-claude:latest images/claude/
 	docker build -t zynqel-qwen:latest images/qwen/
 
-# Build and run locally
-run: build images
-	./bin/zynqel-core
-
 # --- Web dashboard ---
 
-# Install web dependencies
 web-install:
 	cd web && npm install
 
-# Run Next.js dev server (port 3000, proxies to Go on 8080)
 web-dev:
 	cd web && npm run dev
 
-# Build Next.js static export → web/out/
 web-build:
 	cd web && npm run build
 
-# Build everything: web static export + Go binary
-build-all: web-build build
+# --- Cleanup ---
 
-# Clean build artifacts and Docker resources
 clean:
 	rm -rf bin/
 	rm -rf web/.next/ web/out/
