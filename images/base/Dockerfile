@@ -19,7 +19,13 @@ RUN apt-get update && \
         unzip \
         tree \
         ripgrep \
-    && rm -rf /var/lib/apt/lists/*
+        locales \
+    && rm -rf /var/lib/apt/lists/* \
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen
+
+# UTF-8 locale — required for box-drawing and Unicode in terminal UIs
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 # Shell prompt
 RUN echo 'PS1="\[\e[32m\]\w\[\e[0m\] \$ "' >> /root/.bashrc && \
