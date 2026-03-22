@@ -18,7 +18,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "./confirm-dialog";
-import { Search, Inbox, Play, Trash2, HardDrive } from "lucide-react";
+import { Search, Inbox, Play, Trash2, HardDrive, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export function WorkspaceList({
   onCreateClick,
@@ -57,10 +58,13 @@ export function WorkspaceList({
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  const [resumingId, setResumingId] = useState<string | null>(null);
+
   const handleStop = async (id: string) => {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "stopped" as const } : s))
     );
+    toast.success("Workspace stopped");
     try {
       const updated = await api.stopSession(id);
       setSessions((prev) =>
@@ -68,18 +72,20 @@ export function WorkspaceList({
       );
     } catch (err) {
       fetchData();
-      console.error("Failed to stop session:", err);
+      toast.error("Failed to stop workspace");
     }
   };
 
   const handleRestart = async (id: string) => {
+    toast.loading("Starting workspace...", { id: "restart" });
     try {
       const newSession = await api.restartSession(id);
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? newSession : s))
       );
+      toast.success("Workspace started", { id: "restart" });
     } catch (err) {
-      console.error("Failed to restart session:", err);
+      toast.error("Failed to start workspace", { id: "restart" });
     }
   };
 
@@ -87,20 +93,26 @@ export function WorkspaceList({
     try {
       await api.deleteSession(id);
       setSessions((prev) => prev.filter((s) => s.id !== id));
+      toast.success("Workspace removed");
     } catch (err) {
-      console.error("Failed to delete session:", err);
+      toast.error("Failed to remove workspace");
     }
   };
 
   const handleResume = async (ws: Workspace) => {
+    setResumingId(ws.id);
+    toast.loading("Resuming workspace...", { id: "resume" });
     try {
       const session = await api.createSession({
         agent: ws.agent || "shell",
         workspace_id: ws.id,
       });
+      toast.success("Workspace resumed", { id: "resume" });
       router.push(`/workspace?id=${session.id}`);
     } catch (err) {
-      console.error("Failed to resume workspace:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to resume workspace", { id: "resume" });
+    } finally {
+      setResumingId(null);
     }
   };
 
@@ -108,8 +120,9 @@ export function WorkspaceList({
     try {
       await api.deleteWorkspace(id);
       setWorkspaces((prev) => prev.filter((w) => w.id !== id));
+      toast.success("Workspace deleted");
     } catch (err) {
-      console.error("Failed to delete workspace:", err);
+      toast.error("Failed to delete workspace");
     }
   };
 
@@ -254,9 +267,14 @@ export function WorkspaceList({
                           <Button
                             size="sm"
                             onClick={() => handleResume(ws)}
+                            disabled={resumingId === ws.id}
                           >
-                            <Play className="h-3.5 w-3.5 mr-1.5" />
-                            Resume
+                            {resumingId === ws.id ? (
+                              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5 mr-1.5" />
+                            )}
+                            {resumingId === ws.id ? "Starting..." : "Resume"}
                           </Button>
                           <Button
                             variant="ghost"

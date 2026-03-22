@@ -499,7 +499,11 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, s := range sessions {
-		m.cleanupSession(ctx, s)
+		if s.Status == StatusStopped {
+			_ = m.sandbox.Remove(ctx, s.ContainerID)
+		} else {
+			m.cleanupSession(ctx, s)
+		}
 		log.Printf("cleaned up session %s", s.ID)
 	}
 }

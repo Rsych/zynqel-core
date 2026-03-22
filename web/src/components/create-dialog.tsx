@@ -26,6 +26,7 @@ import {
 import { api } from "@/lib/api";
 import type { AgentConfig } from "@/lib/types";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface CreateDialogProps {
   open: boolean;
@@ -70,7 +71,9 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
       resetForm();
       router.push(`/workspace?id=${session.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create workspace");
+      const msg = err instanceof Error ? err.message : "Failed to create workspace";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setCreating(false);
     }

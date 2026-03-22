@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import type { Session } from "@/lib/types";
+import { toast } from "sonner";
 import { TerminalView } from "@/components/terminal-view";
 import { ResourceBars } from "@/components/resource-bars";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -15,6 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft,
+  Loader2,
   Play,
   Square,
   Trash2,
@@ -41,6 +43,7 @@ function WorkspaceDetail() {
   const [loading, setLoading] = useState(true);
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -56,36 +59,41 @@ function WorkspaceDetail() {
 
   const handleStop = async () => {
     if (!id || !session) return;
-    // Instant feedback — update UI before waiting for backend.
     setSession({ ...session, status: "stopped" });
+    toast.success("Workspace stopped");
     try {
       const updated = await api.stopSession(id);
       setSession(updated);
     } catch (err) {
-      // Revert on failure.
       setSession(session);
-      console.error("Failed to stop session:", err);
+      toast.error("Failed to stop workspace");
     }
   };
 
   const handleRestart = async () => {
     if (!id) return;
+    setRestarting(true);
+    toast.loading("Starting workspace...", { id: "restart" });
     try {
       const newSession = await api.restartSession(id);
-      // Navigate to the new session.
+      toast.success("Workspace started", { id: "restart" });
       router.push(`/workspace?id=${newSession.id}`);
     } catch (err) {
-      console.error("Failed to restart session:", err);
+      toast.error("Failed to start workspace", { id: "restart" });
+    } finally {
+      setRestarting(false);
     }
   };
 
   const handleDelete = async () => {
     if (!id) return;
+    toast.loading("Removing workspace...", { id: "delete" });
     try {
       await api.deleteSession(id);
+      toast.success("Workspace removed", { id: "delete" });
       router.push("/");
     } catch (err) {
-      console.error("Failed to delete session:", err);
+      toast.error("Failed to remove workspace", { id: "delete" });
     }
   };
 
@@ -143,9 +151,13 @@ function WorkspaceDetail() {
 
           <div className="flex items-center gap-2">
             {!isRunning && (
-              <Button size="sm" onClick={handleRestart}>
-                <Play className="h-3.5 w-3.5 mr-1.5" />
-                Start
+              <Button size="sm" onClick={handleRestart} disabled={restarting}>
+                {restarting ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                {restarting ? "Starting..." : "Start"}
               </Button>
             )}
             {isRunning && (
