@@ -4,6 +4,7 @@ import type {
   ContainerStats,
   SystemInfo,
   Workspace,
+  AgentConfig,
 } from "./types";
 
 // In dev, Next.js runs on :3000 but Go API is on :8080.
@@ -43,6 +44,21 @@ export const api = {
     fetchJSON<void>(`/sessions/${id}`, { method: "DELETE" }),
   getSessionStats: (id: string) =>
     fetchJSON<ContainerStats>(`/sessions/${id}/stats`),
+
+  // Agents
+  listAgents: () => fetchJSON<AgentConfig[]>("/agents"),
+  createAgent: (cfg: Omit<AgentConfig, "builtin">) =>
+    fetchJSON<AgentConfig>("/agents", {
+      method: "POST",
+      body: JSON.stringify(cfg),
+    }),
+  updateAgent: (name: string, cfg: Omit<AgentConfig, "builtin">) =>
+    fetchJSON<AgentConfig>(`/agents/${name}`, {
+      method: "PUT",
+      body: JSON.stringify(cfg),
+    }),
+  deleteAgent: (name: string) =>
+    fetchJSON<void>(`/agents/${name}`, { method: "DELETE" }),
 
   // System
   getSystemInfo: () => fetchJSON<SystemInfo>("/system/info"),

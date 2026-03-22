@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -16,11 +16,15 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
+import type { AgentConfig } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 
 interface CreateDialogProps {
@@ -30,12 +34,22 @@ interface CreateDialogProps {
 
 export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
   const router = useRouter();
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [agent, setAgent] = useState("shell");
   const [workspaceId, setWorkspaceId] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      api.listAgents().then(setAgents).catch(() => {});
+    }
+  }, [open]);
+
+  const builtinAgents = agents.filter((a) => a.builtin);
+  const customAgents = agents.filter((a) => !a.builtin);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -89,8 +103,33 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="shell">Shell</SelectItem>
-                <SelectItem value="claude">Claude</SelectItem>
+                <SelectGroup>
+                  <SelectLabel>Built-in</SelectLabel>
+                  {builtinAgents.map((a) => (
+                    <SelectItem key={a.name} value={a.name}>
+                      {a.name.charAt(0).toUpperCase() + a.name.slice(1)}
+                    </SelectItem>
+                  ))}
+                  {builtinAgents.length === 0 && (
+                    <>
+                      <SelectItem value="shell">Shell</SelectItem>
+                      <SelectItem value="claude">Claude</SelectItem>
+                    </>
+                  )}
+                </SelectGroup>
+                {customAgents.length > 0 && (
+                  <>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel>Custom</SelectLabel>
+                      {customAgents.map((a) => (
+                        <SelectItem key={a.name} value={a.name}>
+                          {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>

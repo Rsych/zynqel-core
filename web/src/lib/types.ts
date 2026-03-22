@@ -34,6 +34,14 @@ export interface SystemInfo {
   hard_timeout: number;
 }
 
+export interface AgentConfig {
+  name: string;
+  builtin: boolean;
+  command?: string[];
+  image?: string;
+  env?: Record<string, string>;
+}
+
 export interface Workspace {
   id: string;
   created_at: string;

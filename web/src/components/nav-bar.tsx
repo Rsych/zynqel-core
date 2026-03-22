@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import type { SystemInfo } from "@/lib/types";
-import { Activity } from "lucide-react";
+import { Activity, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function NavBar() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -26,14 +28,21 @@ export function NavBar() {
           <span className="text-lg font-semibold tracking-tight">Zynqel</span>
         </div>
 
-        {info && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Activity className="h-3.5 w-3.5" />
-            <span>
-              {info.active_count}/{info.max_sessions || "∞"} sessions
-            </span>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {info && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Activity className="h-3.5 w-3.5" />
+              <span>
+                {info.active_count}/{info.max_sessions || "∞"} sessions
+              </span>
+            </div>
+          )}
+          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+            <Link href="/console/agents">
+              <Settings className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       </div>
     </header>
   );
