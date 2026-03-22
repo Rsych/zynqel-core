@@ -49,7 +49,7 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
       });
       onOpenChange(false);
       resetForm();
-      router.push(`/console/workspace/${session.id}`);
+      router.push(`/console/workspace?id=${session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create workspace");
     } finally {
