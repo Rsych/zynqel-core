@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/server"
@@ -48,7 +50,18 @@ func main() {
 		log.Printf("orphan sweep: removed %d stale container(s)", n)
 	}
 
-	sm := session.NewManager(sb, rp)
+	// Load custom agent configs.
+	dataDir := os.Getenv("ZYNQEL_DATA_DIR")
+	if dataDir == "" {
+		home, _ := os.UserHomeDir()
+		dataDir = filepath.Join(home, ".zynqel")
+	}
+	agentStore := agentcfg.NewStore(filepath.Join(dataDir, "agents.json"))
+	if err := agentStore.Load(); err != nil {
+		log.Printf("warning: failed to load agent configs: %v", err)
+	}
+
+	sm := session.NewManager(sb, rp, agentStore)
 
 	// Serve dashboard from web/out/ (Next.js static export) or web/ (legacy).
 	var webFS fs.FS
@@ -59,7 +72,7 @@ func main() {
 		webFS = os.DirFS("web")
 		log.Println("serving dev console from ./web")
 	}
-	srv := server.New(sm, webFS)
+	srv := server.New(sm, agentStore, webFS)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%s", port),

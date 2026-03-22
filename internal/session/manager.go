@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Rsych/zynqel-core/internal/adapter"
+	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/shortid"
@@ -35,15 +36,17 @@ type Manager struct {
 	sessions    map[string]*Session
 	sandbox     sandbox.Sandbox
 	policy      policy.ResourcePolicy
+	agents      *agentcfg.Store
 	idleTimeout time.Duration
 	hardTimeout time.Duration
 }
 
-func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy) *Manager {
+func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy, agents *agentcfg.Store) *Manager {
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		sandbox:     sb,
 		policy:      p,
+		agents:      agents,
 		idleTimeout: time.Duration(p.IdleTimeoutSec) * time.Second,
 		hardTimeout: time.Duration(p.HardTimeoutSec) * time.Second,
 	}
@@ -73,7 +76,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	m.mu.RUnlock()
 
 	// Validate agent and create adapter (nil for bare shell).
-	agentAdapter, err := adapter.New(spec.Agent, m.sandbox)
+	agentAdapter, err := adapter.New(spec.Agent, m.sandbox, m.agents)
 	if err != nil {
 		return nil, fmt.Errorf("create adapter: %w", err)
 	}

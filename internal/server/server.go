@@ -5,20 +5,23 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/session"
 )
 
 type Server struct {
 	router   *http.ServeMux
 	sessions *session.Manager
+	agents   *agentcfg.Store
 }
 
-// New takes a session.Manager and a filesystem for static web assets.
-// Pass nil for webFS to disable the dev console.
-func New(sm *session.Manager, webFS fs.FS) *Server {
+// New takes a session.Manager, agent config store, and a filesystem for static web assets.
+// Pass nil for webFS to disable the dashboard.
+func New(sm *session.Manager, agents *agentcfg.Store, webFS fs.FS) *Server {
 	s := &Server{
 		router:   http.NewServeMux(),
 		sessions: sm,
+		agents:   agents,
 	}
 	s.routes(webFS)
 	return s
@@ -32,6 +35,10 @@ func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("DELETE /sessions/{id}", s.handleDeleteSession)
 	s.router.HandleFunc("GET /sessions/{id}/stats", s.handleSessionStats)
 	s.router.HandleFunc("GET /sessions/{id}/stream", s.handleSessionStream)
+	s.router.HandleFunc("GET /agents", s.handleListAgents)
+	s.router.HandleFunc("POST /agents", s.handleCreateAgent)
+	s.router.HandleFunc("PUT /agents/{name}", s.handleUpdateAgent)
+	s.router.HandleFunc("DELETE /agents/{name}", s.handleDeleteAgent)
 	s.router.HandleFunc("GET /system/info", s.handleSystemInfo)
 	s.router.HandleFunc("GET /workspaces", s.handleListWorkspaces)
 	s.router.HandleFunc("DELETE /workspaces/{id}", s.handleDeleteWorkspace)
