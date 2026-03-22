@@ -12,6 +12,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/shortid"
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -326,7 +327,7 @@ func (d *DockerSandbox) BuildImage(ctx context.Context, dockerfile, imageName st
 	}
 
 	log.Printf("building image %s ...", imageName)
-	resp, err := d.cli.ImageBuild(ctx, &buf, types.ImageBuildOptions{
+	resp, err := d.cli.ImageBuild(ctx, &buf, build.ImageBuildOptions{
 		Tags:       []string{imageName},
 		Dockerfile: "Dockerfile",
 		Remove:     true,

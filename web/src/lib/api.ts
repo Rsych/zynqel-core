@@ -42,6 +42,8 @@ export const api = {
     }),
   stopSession: (id: string) =>
     fetchJSON<Session>(`/sessions/${id}/stop`, { method: "POST" }),
+  restartSession: (id: string) =>
+    fetchJSON<Session>(`/sessions/${id}/restart`, { method: "POST" }),
   deleteSession: (id: string) =>
     fetchJSON<void>(`/sessions/${id}`, { method: "DELETE" }),
   getSessionStats: (id: string) =>

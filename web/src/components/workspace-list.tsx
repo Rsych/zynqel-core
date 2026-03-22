@@ -64,6 +64,18 @@ export function WorkspaceList({
     }
   };
 
+  const handleRestart = async (id: string) => {
+    try {
+      const newSession = await api.restartSession(id);
+      // Replace old session with new one in the list.
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? newSession : s))
+      );
+    } catch (err) {
+      console.error("Failed to restart session:", err);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await api.deleteSession(id);
@@ -148,6 +160,7 @@ export function WorkspaceList({
               key={s.id}
               session={s}
               onStop={(id) => setConfirmAction({ type: "stop", id })}
+              onRestart={handleRestart}
               onDelete={(id) => setConfirmAction({ type: "delete", id })}
             />
           ))}

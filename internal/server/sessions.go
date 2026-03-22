@@ -83,6 +83,20 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
+// handleRestartSession creates a new session from a stopped session's spec.
+func (s *Server) handleRestartSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	sess, err := s.sessions.Restart(r.Context(), id)
+	if err != nil {
+		log.Printf("error restarting session %s: %v", id, err)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, sess)
+}
+
 // handleListWorkspaces returns all saved workspace volumes.
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	workspaces, err := s.sessions.ListWorkspaces(r.Context())

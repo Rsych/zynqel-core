@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft,
+  Play,
   Square,
   Trash2,
   Terminal,
@@ -64,6 +65,17 @@ function WorkspaceDetail() {
       // Revert on failure.
       setSession(session);
       console.error("Failed to stop session:", err);
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!id) return;
+    try {
+      const newSession = await api.restartSession(id);
+      // Navigate to the new session.
+      router.push(`/workspace?id=${newSession.id}`);
+    } catch (err) {
+      console.error("Failed to restart session:", err);
     }
   };
 
@@ -130,6 +142,12 @@ function WorkspaceDetail() {
           </div>
 
           <div className="flex items-center gap-2">
+            {!isRunning && (
+              <Button size="sm" onClick={handleRestart}>
+                <Play className="h-3.5 w-3.5 mr-1.5" />
+                Start
+              </Button>
+            )}
             {isRunning && (
               <Button variant="secondary" size="sm" onClick={() => setConfirmStop(true)}>
                 <Square className="h-3.5 w-3.5 mr-1.5" />

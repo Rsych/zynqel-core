@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical, ExternalLink, Square, Trash2 } from "lucide-react";
+import { MoreVertical, ExternalLink, Square, Trash2, Play } from "lucide-react";
 import type { Session } from "@/lib/types";
 
 const statusConfig: Record<
@@ -37,12 +37,14 @@ function timeAgo(dateStr: string): string {
 interface WorkspaceCardProps {
   session: Session;
   onStop: (id: string) => void;
+  onRestart: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function WorkspaceCard({ session, onStop, onDelete }: WorkspaceCardProps) {
+export function WorkspaceCard({ session, onStop, onRestart, onDelete }: WorkspaceCardProps) {
   const status = statusConfig[session.status] || statusConfig.stopped;
   const isRunning = session.status === "running";
+  const isStopped = session.status === "stopped";
 
   return (
     <Card className="group relative bg-card border-border hover:border-primary/40 transition-colors">
@@ -103,15 +105,19 @@ export function WorkspaceCard({ session, onStop, onDelete }: WorkspaceCardProps)
                     </Link>
                   </DropdownMenuItem>
                 )}
-                {isRunning && (
-                  <>
-                    <DropdownMenuItem onClick={() => onStop(session.id)}>
-                      <Square className="h-4 w-4 mr-2" />
-                      Stop
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
+                {isStopped && (
+                  <DropdownMenuItem onClick={() => onRestart(session.id)}>
+                    <Play className="h-4 w-4 mr-2" />
+                    Start
+                  </DropdownMenuItem>
                 )}
+                {isRunning && (
+                  <DropdownMenuItem onClick={() => onStop(session.id)}>
+                    <Square className="h-4 w-4 mr-2" />
+                    Stop
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => onDelete(session.id)}
                   className="text-destructive focus:text-destructive"

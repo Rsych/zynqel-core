@@ -36,6 +36,7 @@ func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("GET /sessions", s.handleListSessions)
 	s.router.HandleFunc("GET /sessions/{id}", s.handleGetSession)
 	s.router.HandleFunc("POST /sessions/{id}/stop", s.handleStopSession)
+	s.router.HandleFunc("POST /sessions/{id}/restart", s.handleRestartSession)
 	s.router.HandleFunc("DELETE /sessions/{id}", s.handleDeleteSession)
 	s.router.HandleFunc("GET /sessions/{id}/stats", s.handleSessionStats)
 	s.router.HandleFunc("GET /sessions/{id}/stream", s.handleSessionStream)
