@@ -92,6 +92,32 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleSessionStats returns container CPU/memory stats.
+func (s *Server) handleSessionStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	stats, err := s.sessions.Stats(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found or not running")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// handleSystemInfo returns system-level information.
+func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+	p := s.sessions.Policy()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"max_sessions":  p.MaxSessions,
+		"active_count":  s.sessions.ActiveCount(),
+		"memory_mb":     p.MemoryMB,
+		"cpu_quota":     p.CPUQuota,
+		"idle_timeout":  p.IdleTimeoutSec,
+		"hard_timeout":  p.HardTimeoutSec,
+	})
+}
+
 // writeJSON is a helper to send JSON responses.
 // Having this in one place means consistent Content-Type headers
 // and error handling everywhere.

@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -248,6 +249,37 @@ func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([
 	}
 
 	return output, nil
+}
+
+// Stats returns point-in-time CPU and memory usage for a container.
+func (d *DockerSandbox) Stats(ctx context.Context, id string) (*ContainerStats, error) {
+	resp, err := d.cli.ContainerStats(ctx, id, false)
+	if err != nil {
+		return nil, fmt.Errorf("stats container %s: %w", shortid.Format(id), err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var v container.StatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return nil, fmt.Errorf("decode stats for %s: %w", shortid.Format(id), err)
+	}
+
+	// Calculate CPU percentage.
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+	var cpuPercent float64
+	if systemDelta > 0 && cpuDelta > 0 {
+		cpuPercent = (cpuDelta / systemDelta) * float64(v.CPUStats.OnlineCPUs) * 100.0
+	}
+
+	memoryMB := float64(v.MemoryStats.Usage) / (1024 * 1024)
+	memoryMaxMB := float64(v.MemoryStats.Limit) / (1024 * 1024)
+
+	return &ContainerStats{
+		CPUPercent: cpuPercent,
+		MemoryMB:   memoryMB,
+		MemoryMax:  memoryMaxMB,
+	}, nil
 }
 
 // Commit saves the current container state as a new image.

@@ -22,10 +22,18 @@ type Sandbox interface {
 	Exec(ctx context.Context, id string, cmd []string) (PTYConn, error)
 	ExecRun(ctx context.Context, id string, cmd []string) ([]byte, error)
 	Resize(ctx context.Context, id string, cols, rows int) error
+	Stats(ctx context.Context, id string) (*ContainerStats, error)
 	Commit(ctx context.Context, containerID, imageName string) error
 	ImageExists(ctx context.Context, imageName string) bool
 	ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error)
 	RemoveVolume(ctx context.Context, name string) error
+}
+
+// ContainerStats holds point-in-time resource usage for a container.
+type ContainerStats struct {
+	CPUPercent float64 `json:"cpu_percent"`
+	MemoryMB   float64 `json:"memory_mb"`
+	MemoryMax  float64 `json:"memory_max_mb"`
 }
 
 // VolumeInfo describes a Docker volume.

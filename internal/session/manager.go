@@ -362,6 +362,34 @@ func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
 	return m.sandbox.RemoveVolume(ctx, volumePrefix+wsID)
 }
 
+// Stats returns container resource usage for a session.
+func (m *Manager) Stats(ctx context.Context, id string) (*sandbox.ContainerStats, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", id)
+	}
+	if s.Status != StatusRunning {
+		return nil, fmt.Errorf("session %s is not running", id)
+	}
+
+	return m.sandbox.Stats(ctx, s.ContainerID)
+}
+
+// ActiveCount returns the number of active sessions.
+func (m *Manager) ActiveCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.sessions)
+}
+
+// Policy returns the resource policy.
+func (m *Manager) Policy() policy.ResourcePolicy {
+	return m.policy
+}
+
 // Shutdown stops and removes all active sessions.
 // Called during server shutdown to clean up containers.
 func (m *Manager) Shutdown(ctx context.Context) {

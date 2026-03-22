@@ -40,3 +40,8 @@ credentials*
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Next.js (web/)
+web/node_modules/
+web/.next/
+web/out/
