@@ -6,6 +6,8 @@ export interface SessionSpec {
   workspace_id?: string;
   repo_url?: string;
   branch?: string;
+  git_token?: string;
+  ssh_key_path?: string;
   env?: Record<string, string>;
 }
 

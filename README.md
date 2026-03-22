@@ -60,16 +60,22 @@ ZYNQEL_SESSION_CPU_QUOTA=100       # CPU quota, 100 = 1 core (default: 100)
 ### HTTP
 
 ```
-GET    /health                 Health check
-POST   /sessions               Create session
-GET    /sessions                List sessions
-GET    /sessions/:id            Session details
-GET    /sessions/:id/stats      Container CPU/memory stats
-DELETE /sessions/:id            Stop session
-GET    /system/info             System info (capacity, limits)
-GET    /workspaces              List saved workspaces
-DELETE /workspaces/:id          Delete workspace
-GET    /console/                Dashboard UI
+GET    /health                  Health check
+POST   /sessions                Create session
+GET    /sessions                 List sessions
+GET    /sessions/:id             Session details
+POST   /sessions/:id/stop       Stop session (keeps in list)
+POST   /sessions/:id/restart    Restart stopped session
+DELETE /sessions/:id             Remove session
+GET    /sessions/:id/stats       Container CPU/memory stats
+GET    /agents                   List agents (built-in + custom)
+POST   /agents                   Create custom agent
+PUT    /agents/:name             Update custom agent
+DELETE /agents/:name             Delete custom agent
+GET    /system/info              System info (capacity, limits)
+GET    /workspaces               List saved workspaces
+DELETE /workspaces/:id           Delete workspace
+GET    /console/                 Dashboard UI
 ```
 
 ### WebSocket
@@ -119,6 +125,62 @@ Workspaces persist across session restarts and server reboots:
 - **Code** — Docker volume mounted at `/workspace`
 - **Environment** — `docker commit` saves installed packages (npm, pip, apt)
 - **Resume** — same `workspace_id` = pick up where you left off
+
+## Private Repositories
+
+Three ways to authenticate with private git repos:
+
+### Method 1: Git Token (recommended)
+
+Paste a Personal Access Token in the dashboard create dialog, or via API:
+
+```bash
+curl -X POST http://localhost:8080/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "agent": "claude",
+    "repo_url": "https://github.com/user/private-repo.git",
+    "git_token": "ghp_xxxxxxxxxxxx"
+  }'
+```
+
+The token is:
+- Used to clone the repo (injected into HTTPS URL)
+- Stored in `~/.git-credentials` so the agent can push/pull
+- Set as `GITHUB_TOKEN` env var (used by Claude Code, gh CLI, etc.)
+- **Redacted** in API responses (shown as `***`)
+
+Works with GitHub PATs, GitLab tokens, Bitbucket app passwords.
+
+### Method 2: SSH Key
+
+Mount your host SSH keys into the container:
+
+```bash
+curl -X POST http://localhost:8080/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "agent": "claude",
+    "repo_url": "git@github.com:user/private-repo.git",
+    "ssh_key_path": "~/.ssh"
+  }'
+```
+
+The SSH directory is bind-mounted (read-only), then copied inside the container with correct permissions. Known hosts for GitHub, GitLab, and Bitbucket are added automatically.
+
+### Method 3: Environment Variable
+
+Pass credentials via the `env` field for manual control:
+
+```bash
+curl -X POST http://localhost:8080/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "agent": "shell",
+    "repo_url": "https://github.com/user/repo.git",
+    "env": {"GITHUB_TOKEN": "ghp_xxxxxxxxxxxx"}
+  }'
+```
 
 ## Architecture
 

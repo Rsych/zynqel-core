@@ -103,6 +103,14 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 			},
 		}
 	}
+	for _, bm := range spec.BindMounts {
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   bm.Source,
+			Target:   bm.Target,
+			ReadOnly: bm.ReadOnly,
+		})
+	}
 
 	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
 	if err != nil {

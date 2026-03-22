@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -113,6 +114,11 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		log.Printf("using committed workspace image %s", committedImage)
 	}
 
+	// Inject git token as GITHUB_TOKEN env var (used by Claude Code, gh CLI, etc.).
+	if spec.GitToken != "" {
+		spec.Env["GITHUB_TOKEN"] = spec.GitToken
+	}
+
 	sbSpec := sandbox.Spec{
 		Image: img,
 		Cmd:   cmd,
@@ -128,6 +134,15 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 			"zynqel.image":   img,
 			"zynqel.agent":   spec.Agent,
 		},
+	}
+
+	// Mount host SSH key directory if specified.
+	if spec.SSHKeyPath != "" {
+		sbSpec.BindMounts = append(sbSpec.BindMounts, sandbox.BindMount{
+			Source:   spec.SSHKeyPath,
+			Target:   "/root/.ssh",
+			ReadOnly: true,
+		})
 	}
 
 	containerID, err := m.sandbox.Create(ctx, sbSpec)
@@ -591,8 +606,17 @@ func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec S
 		return nil
 	}
 
+	// Set up git credentials before clone.
+	if err := m.setupGitCredentials(ctx, containerID, spec); err != nil {
+		log.Printf("warning: git credential setup: %v", err)
+	}
+
 	// Clone the repo into /workspace.
-	cloneCmd := []string{"git", "clone", spec.RepoURL, "/workspace"}
+	cloneURL := spec.RepoURL
+	if spec.GitToken != "" {
+		cloneURL = injectTokenInURL(spec.RepoURL, spec.GitToken)
+	}
+	cloneCmd := []string{"git", "clone", cloneURL, "/workspace"}
 	if _, err := m.sandbox.ExecRun(ctx, containerID, cloneCmd); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
@@ -608,6 +632,58 @@ func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec S
 	}
 
 	return nil
+}
+
+// setupGitCredentials configures git auth inside the container.
+func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, spec SessionSpec) error {
+	// Token-based auth: set up git credential store.
+	if spec.GitToken != "" {
+		// Configure credential helper so git push/pull works for the agent.
+		cmds := [][]string{
+			{"git", "config", "--global", "credential.helper", "store"},
+		}
+		// Write credentials for all HTTPS hosts.
+		if u, err := url.Parse(spec.RepoURL); err == nil && u.Host != "" {
+			credLine := fmt.Sprintf("https://x-access-token:%s@%s", spec.GitToken, u.Host)
+			cmds = append(cmds, []string{"sh", "-c", fmt.Sprintf("echo '%s' >> /root/.git-credentials", credLine)})
+		}
+		for _, cmd := range cmds {
+			if _, err := m.sandbox.ExecRun(ctx, containerID, cmd); err != nil {
+				return fmt.Errorf("credential setup: %w", err)
+			}
+		}
+		log.Printf("configured git token credentials in container")
+	}
+
+	// SSH key mount: fix permissions and add known hosts.
+	if spec.SSHKeyPath != "" {
+		// Copy SSH keys to a writable location (bind mount is read-only).
+		cmds := [][]string{
+			{"sh", "-c", "cp -r /root/.ssh /tmp/.ssh-copy && rm -rf /root/.ssh && mv /tmp/.ssh-copy /root/.ssh"},
+			{"chmod", "700", "/root/.ssh"},
+			{"sh", "-c", "chmod 600 /root/.ssh/* 2>/dev/null || true"},
+			{"sh", "-c", "ssh-keyscan github.com gitlab.com bitbucket.org >> /root/.ssh/known_hosts 2>/dev/null"},
+		}
+		for _, cmd := range cmds {
+			if _, err := m.sandbox.ExecRun(ctx, containerID, cmd); err != nil {
+				return fmt.Errorf("ssh setup: %w", err)
+			}
+		}
+		log.Printf("configured SSH keys in container")
+	}
+
+	return nil
+}
+
+// injectTokenInURL adds a token to an HTTPS git URL.
+// https://github.com/user/repo.git → https://x-access-token:TOKEN@github.com/user/repo.git
+func injectTokenInURL(repoURL, token string) string {
+	u, err := url.Parse(repoURL)
+	if err != nil || u.Scheme != "https" {
+		return repoURL
+	}
+	u.User = url.UserPassword("x-access-token", token)
+	return u.String()
 }
 
 func generateID() (string, error) {

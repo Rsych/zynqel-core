@@ -39,6 +39,9 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
   const [workspaceId, setWorkspaceId] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("");
+  const [authMethod, setAuthMethod] = useState("none");
+  const [gitToken, setGitToken] = useState("");
+  const [sshKeyPath, setSshKeyPath] = useState("~/.ssh");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,6 +63,8 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
         workspace_id: workspaceId || undefined,
         repo_url: repoUrl || undefined,
         branch: branch || undefined,
+        git_token: authMethod === "token" ? gitToken : undefined,
+        ssh_key_path: authMethod === "ssh" ? sshKeyPath : undefined,
       });
       onOpenChange(false);
       resetForm();
@@ -76,6 +81,9 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
     setWorkspaceId("");
     setRepoUrl("");
     setBranch("");
+    setAuthMethod("none");
+    setGitToken("");
+    setSshKeyPath("~/.ssh");
     setError("");
   };
 
@@ -161,20 +169,69 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
           </div>
 
           {repoUrl && (
-            <div className="space-y-2">
-              <Label htmlFor="branch">
-                Branch{" "}
-                <span className="text-muted-foreground font-normal">
-                  (optional)
-                </span>
-              </Label>
-              <Input
-                id="branch"
-                placeholder="main"
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-              />
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="branch">
+                  Branch{" "}
+                  <span className="text-muted-foreground font-normal">
+                    (optional)
+                  </span>
+                </Label>
+                <Input
+                  id="branch"
+                  placeholder="main"
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Authentication</Label>
+                <Select value={authMethod} onValueChange={setAuthMethod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (public repo)</SelectItem>
+                    <SelectItem value="token">Git Token (PAT)</SelectItem>
+                    <SelectItem value="ssh">SSH Key</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {authMethod === "token" && (
+                <div className="space-y-2">
+                  <Label htmlFor="git-token">Token</Label>
+                  <Input
+                    id="git-token"
+                    type="password"
+                    placeholder="ghp_... or glpat-..."
+                    value={gitToken}
+                    onChange={(e) => setGitToken(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    GitHub PAT, GitLab token, etc. Also set as GITHUB_TOKEN env var.
+                  </p>
+                </div>
+              )}
+
+              {authMethod === "ssh" && (
+                <div className="space-y-2">
+                  <Label htmlFor="ssh-path">SSH Key Directory</Label>
+                  <Input
+                    id="ssh-path"
+                    placeholder="~/.ssh"
+                    value={sshKeyPath}
+                    onChange={(e) => setSshKeyPath(e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Host path to mount into the container. Use SSH repo URL
+                    (git@github.com:user/repo.git).
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
           {error && (

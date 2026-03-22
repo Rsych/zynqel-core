@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"sync/atomic"
 	"time"
 
@@ -29,7 +30,19 @@ type SessionSpec struct {
 	WorkspaceID string            `json:"workspace_id,omitempty"` // persistent volume ID (empty = ephemeral)
 	RepoURL     string            `json:"repo_url,omitempty"`
 	Branch      string            `json:"branch,omitempty"`
+	GitToken    string            `json:"git_token,omitempty"`    // PAT for private HTTPS repos
+	SSHKeyPath  string            `json:"ssh_key_path,omitempty"` // host path to SSH key dir (bind mount)
 	Env         map[string]string `json:"env,omitempty"`
+}
+
+// MarshalJSON redacts sensitive fields from API responses.
+func (s SessionSpec) MarshalJSON() ([]byte, error) {
+	type Alias SessionSpec
+	a := Alias(s)
+	if a.GitToken != "" {
+		a.GitToken = "***"
+	}
+	return json.Marshal(a)
 }
 
 // Session is the runtime state — what actually exists.
