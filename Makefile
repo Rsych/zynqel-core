@@ -1,4 +1,4 @@
-.PHONY: build test lint images run clean
+.PHONY: build test lint images run clean web-dev web-build web-install
 
 # Build the Go binary
 build:
@@ -24,9 +24,27 @@ images:
 run: build images
 	./bin/zynqel-core
 
+# --- Web dashboard ---
+
+# Install web dependencies
+web-install:
+	cd web && npm install
+
+# Run Next.js dev server (port 3000, proxies to Go on 8080)
+web-dev:
+	cd web && npm run dev
+
+# Build Next.js static export → web/out/
+web-build:
+	cd web && npm run build
+
+# Build everything: web static export + Go binary
+build-all: web-build build
+
 # Clean build artifacts and Docker resources
 clean:
 	rm -rf bin/
+	rm -rf web/.next/ web/out/
 	docker rm -f $$(docker ps --filter "label=zynqel.managed=true" -q) 2>/dev/null || true
 	docker volume rm $$(docker volume ls --filter "name=zynqel-ws-" -q) 2>/dev/null || true
 	docker rmi $$(docker images --filter "reference=zynqel-ws-*" -q) 2>/dev/null || true

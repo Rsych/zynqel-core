@@ -109,12 +109,12 @@ func (s *Server) handleSessionStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 	p := s.sessions.Policy()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"max_sessions":  p.MaxSessions,
-		"active_count":  s.sessions.ActiveCount(),
-		"memory_mb":     p.MemoryMB,
-		"cpu_quota":     p.CPUQuota,
-		"idle_timeout":  p.IdleTimeoutSec,
-		"hard_timeout":  p.HardTimeoutSec,
+		"max_sessions": p.MaxSessions,
+		"active_count": s.sessions.ActiveCount(),
+		"memory_mb":    p.MemoryMB,
+		"cpu_quota":    p.CPUQuota,
+		"idle_timeout": p.IdleTimeoutSec,
+		"hard_timeout": p.HardTimeoutSec,
 	})
 }
 

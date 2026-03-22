@@ -50,9 +50,12 @@ func main() {
 
 	sm := session.NewManager(sb, rp)
 
-	// Serve web dev console from ./web directory if it exists.
+	// Serve dashboard from web/out/ (Next.js static export) or web/ (legacy).
 	var webFS fs.FS
-	if info, err := os.Stat("web"); err == nil && info.IsDir() {
+	if info, err := os.Stat("web/out"); err == nil && info.IsDir() {
+		webFS = os.DirFS("web/out")
+		log.Println("serving dashboard from web/out/")
+	} else if info, err := os.Stat("web"); err == nil && info.IsDir() {
 		webFS = os.DirFS("web")
 		log.Println("serving dev console from ./web")
 	}

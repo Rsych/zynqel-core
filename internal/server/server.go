@@ -3,6 +3,7 @@ package server
 import (
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/Rsych/zynqel-core/internal/session"
 )
@@ -36,7 +37,19 @@ func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("DELETE /workspaces/{id}", s.handleDeleteWorkspace)
 
 	if webFS != nil {
-		s.router.Handle("GET /console/", http.StripPrefix("/console/", http.FileServer(http.FS(webFS))))
+		fileServer := http.FileServer(http.FS(webFS))
+		s.router.HandleFunc("GET /console/", func(w http.ResponseWriter, r *http.Request) {
+			// Strip /console/ prefix for file lookup.
+			path := strings.TrimPrefix(r.URL.Path, "/console/")
+
+			// Try exact file, then path.html (Next.js static export).
+			if path != "" && !strings.Contains(path, ".") {
+				if _, err := fs.Stat(webFS, path+".html"); err == nil {
+					r.URL.Path = "/console/" + path + ".html"
+				}
+			}
+			http.StripPrefix("/console/", fileServer).ServeHTTP(w, r)
+		})
 	}
 }
 
