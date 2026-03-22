@@ -87,7 +87,7 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
         if (!v) resetForm();
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>New Workspace</DialogTitle>
           <DialogDescription>

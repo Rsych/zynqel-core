@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Rsych/zynqel-core/internal/session"
 )
@@ -23,7 +25,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := s.sessions.Create(r.Context(), spec)
+	// Use a long timeout — git clone + image pull can take minutes.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	sess, err := s.sessions.Create(ctx, spec)
 	if err != nil {
 		if errors.Is(err, session.ErrAtCapacity) {
 			writeError(w, http.StatusTooManyRequests, "session capacity exceeded")
@@ -87,7 +92,9 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestartSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	sess, err := s.sessions.Restart(r.Context(), id)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	sess, err := s.sessions.Restart(ctx, id)
 	if err != nil {
 		log.Printf("error restarting session %s: %v", id, err)
 		writeError(w, http.StatusBadRequest, err.Error())

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import type { Session } from "@/lib/types";
+import type { Session, Workspace } from "@/lib/types";
 import { WorkspaceCard } from "./workspace-card";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,15 +14,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "./confirm-dialog";
-import { Search, Inbox } from "lucide-react";
+import { Search, Inbox, Play, Trash2, HardDrive } from "lucide-react";
 
 export function WorkspaceList({
   onCreateClick,
 }: {
   onCreateClick: () => void;
 }) {
+  const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -30,10 +36,14 @@ export function WorkspaceList({
     id: string;
   } | null>(null);
 
-  const fetchSessions = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const data = await api.listSessions();
-      setSessions(data || []);
+      const [sessData, wsData] = await Promise.all([
+        api.listSessions(),
+        api.listWorkspaces(),
+      ]);
+      setSessions(sessData || []);
+      setWorkspaces(wsData || []);
     } catch {
       // silently retry on next interval
     } finally {
@@ -42,13 +52,12 @@ export function WorkspaceList({
   }, []);
 
   useEffect(() => {
-    fetchSessions();
-    const interval = setInterval(fetchSessions, 10000);
+    fetchData();
+    const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
-  }, [fetchSessions]);
+  }, [fetchData]);
 
   const handleStop = async (id: string) => {
-    // Instant feedback — mark as stopped before waiting for backend.
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, status: "stopped" as const } : s))
     );
@@ -58,8 +67,7 @@ export function WorkspaceList({
         prev.map((s) => (s.id === id ? updated : s))
       );
     } catch (err) {
-      // Revert on failure — refetch to get real state.
-      fetchSessions();
+      fetchData();
       console.error("Failed to stop session:", err);
     }
   };
@@ -67,7 +75,6 @@ export function WorkspaceList({
   const handleRestart = async (id: string) => {
     try {
       const newSession = await api.restartSession(id);
-      // Replace old session with new one in the list.
       setSessions((prev) =>
         prev.map((s) => (s.id === id ? newSession : s))
       );
@@ -85,6 +92,37 @@ export function WorkspaceList({
     }
   };
 
+  const handleResume = async (ws: Workspace) => {
+    try {
+      const session = await api.createSession({
+        agent: ws.agent || "shell",
+        workspace_id: ws.id,
+      });
+      router.push(`/workspace?id=${session.id}`);
+    } catch (err) {
+      console.error("Failed to resume workspace:", err);
+    }
+  };
+
+  const handleDeleteWorkspace = async (id: string) => {
+    try {
+      await api.deleteWorkspace(id);
+      setWorkspaces((prev) => prev.filter((w) => w.id !== id));
+    } catch (err) {
+      console.error("Failed to delete workspace:", err);
+    }
+  };
+
+  // Workspace IDs that have active sessions.
+  const activeWorkspaceIds = new Set(
+    sessions.map((s) => s.spec.workspace_id).filter(Boolean)
+  );
+
+  // Saved workspaces without an active session.
+  const savedWorkspaces = workspaces.filter(
+    (w) => !activeWorkspaceIds.has(w.id)
+  );
+
   const filtered = sessions.filter((s) => {
     const matchesSearch =
       search === "" ||
@@ -97,6 +135,13 @@ export function WorkspaceList({
     return matchesSearch && matchesStatus;
   });
 
+  const filteredSaved = savedWorkspaces.filter(
+    (w) =>
+      search === "" ||
+      w.id.toLowerCase().includes(search.toLowerCase()) ||
+      (w.agent || "").toLowerCase().includes(search.toLowerCase())
+  );
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -107,8 +152,10 @@ export function WorkspaceList({
     );
   }
 
+  const hasAnything = filtered.length > 0 || filteredSaved.length > 0;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -132,16 +179,16 @@ export function WorkspaceList({
         </Select>
       </div>
 
-      {filtered.length === 0 ? (
+      {!hasAnything ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <Inbox className="h-12 w-12 mb-4 opacity-50" />
           <p className="text-lg font-medium mb-1">
-            {sessions.length === 0
+            {sessions.length === 0 && workspaces.length === 0
               ? "No workspaces yet"
               : "No matching workspaces"}
           </p>
           <p className="text-sm">
-            {sessions.length === 0 ? (
+            {sessions.length === 0 && workspaces.length === 0 ? (
               <button
                 onClick={onCreateClick}
                 className="text-primary hover:underline"
@@ -154,17 +201,80 @@ export function WorkspaceList({
           </p>
         </div>
       ) : (
-        <div className="grid gap-3">
-          {filtered.map((s) => (
-            <WorkspaceCard
-              key={s.id}
-              session={s}
-              onStop={(id) => setConfirmAction({ type: "stop", id })}
-              onRestart={handleRestart}
-              onDelete={(id) => setConfirmAction({ type: "delete", id })}
-            />
-          ))}
-        </div>
+        <>
+          {/* Active sessions */}
+          {filtered.length > 0 && (
+            <div className="grid gap-3">
+              {filtered.map((s) => (
+                <WorkspaceCard
+                  key={s.id}
+                  session={s}
+                  onStop={(id) => setConfirmAction({ type: "stop", id })}
+                  onRestart={handleRestart}
+                  onDelete={(id) => setConfirmAction({ type: "delete", id })}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Saved workspaces (no active session) */}
+          {filteredSaved.length > 0 && statusFilter === "all" && (
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+                <HardDrive className="h-3.5 w-3.5" />
+                Saved Workspaces
+              </h3>
+              <div className="grid gap-3">
+                {filteredSaved.map((ws) => (
+                  <Card
+                    key={ws.id}
+                    className="bg-card border-border border-dashed hover:border-primary/40 transition-colors"
+                  >
+                    <CardContent className="p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2.5 mb-1.5">
+                            <span className="font-medium">{ws.id}</span>
+                            <Badge variant="outline" className="text-xs">
+                              Saved
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            {ws.agent && (
+                              <span className="font-mono bg-muted/50 px-1.5 py-0.5 rounded">
+                                {ws.agent}
+                              </span>
+                            )}
+                            <span>
+                              {new Date(ws.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button
+                            size="sm"
+                            onClick={() => handleResume(ws)}
+                          >
+                            <Play className="h-3.5 w-3.5 mr-1.5" />
+                            Resume
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteWorkspace(ws.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDialog
