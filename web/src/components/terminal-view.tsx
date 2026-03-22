@@ -25,7 +25,7 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
       const term = new Terminal({
         cursorBlink: true,
         fontSize: 13,
-        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+        fontFamily: "'Menlo', 'DejaVu Sans Mono', 'Consolas', 'Liberation Mono', monospace",
         theme: {
           background: "#0a0a0a",
           foreground: "#e5e5e5",
