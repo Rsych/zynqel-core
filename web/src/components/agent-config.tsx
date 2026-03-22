@@ -25,14 +25,32 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Pencil, Trash2, Loader2, Terminal } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Terminal, Info } from "lucide-react";
 
 const DEFAULT_DOCKERFILE = `FROM zynqel-base:latest
 
-# Install your agent CLI tool here, e.g.:
+# Uncomment ONE of these and replace with your agent:
 # RUN npm install -g @your-org/your-agent
 # RUN pip install your-agent
 # RUN apt-get update && apt-get install -y your-agent`;
+
+const DOCKERFILE_EXAMPLES: Record<string, { dockerfile: string; command: string }> = {
+  aider: {
+    dockerfile: `FROM zynqel-base:latest
+RUN pip install aider-chat`,
+    command: "aider",
+  },
+  codex: {
+    dockerfile: `FROM zynqel-base:latest
+RUN npm install -g @openai/codex`,
+    command: "codex",
+  },
+  qwen: {
+    dockerfile: `FROM zynqel-base:latest
+RUN npm install -g @qwen-code/qwen-code@latest`,
+    command: "qwen",
+  },
+};
 
 export function AgentConfigList() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
@@ -216,6 +234,17 @@ export function AgentConfigList() {
   );
 }
 
+function TipBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+      <div className="flex gap-2">
+        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        <div>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function AgentFormDialog({
   open,
   onOpenChange,
@@ -232,6 +261,8 @@ function AgentFormDialog({
   const [dockerfile, setDockerfile] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showCommandTip, setShowCommandTip] = useState(false);
+  const [showDockerfileTip, setShowDockerfileTip] = useState(false);
 
   useEffect(() => {
     if (editing) {
@@ -244,7 +275,19 @@ function AgentFormDialog({
       setDockerfile(DEFAULT_DOCKERFILE);
     }
     setError("");
+    setShowCommandTip(false);
+    setShowDockerfileTip(false);
   }, [editing, open]);
+
+  // Auto-fill from known examples when name matches.
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (!editing && val in DOCKERFILE_EXAMPLES) {
+      const example = DOCKERFILE_EXAMPLES[val];
+      setDockerfile(example.dockerfile);
+      setCommand(example.command);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -276,64 +319,126 @@ function AgentFormDialog({
           <DialogDescription>
             {editing
               ? "Update this custom agent configuration."
-              : "Define a custom agent to run in workspaces. The Dockerfile builds an image with your agent CLI pre-installed."}
+              : "Install a CLI agent tool and configure how to launch it."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {/* Quick start hint */}
+          {!editing && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs">
+              <span className="font-medium">Quick start:</span>{" "}
+              Type a known agent name ({Object.keys(DOCKERFILE_EXAMPLES).map((k, i) => (
+                <span key={k}>
+                  {i > 0 && ", "}
+                  <button
+                    className="text-primary hover:underline font-mono"
+                    onClick={() => handleNameChange(k)}
+                  >
+                    {k}
+                  </button>
+                </span>
+              ))}) to auto-fill the config.
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="agent-name">Name</Label>
             <Input
               id="agent-name"
               placeholder="aider"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => handleNameChange(e.target.value)}
               disabled={!!editing}
             />
             <p className="text-xs text-muted-foreground">
-              Lowercase letters, numbers, hyphens, underscores. This is the agent
-              name you select when creating a workspace.
+              Lowercase alphanumeric, hyphens, underscores.
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="agent-command">Start Command</Label>
-            <Input
-              id="agent-command"
-              placeholder="aider --no-auto-commits"
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              className="font-mono text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              The command to launch inside the container. This is what runs when a
-              workspace starts — typically the CLI binary installed by your Dockerfile.
-              Examples:{" "}
-              <code className="bg-muted px-1 rounded">aider</code>,{" "}
-              <code className="bg-muted px-1 rounded">codex</code>,{" "}
-              <code className="bg-muted px-1 rounded">/usr/local/bin/my-agent --flag</code>
-            </p>
-          </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="agent-dockerfile">Dockerfile</Label>
+              <button
+                type="button"
+                onClick={() => setShowDockerfileTip(!showDockerfileTip)}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                <Info className="h-3 w-3" />
+                {showDockerfileTip ? "Hide tips" : "How to write this"}
+              </button>
+            </div>
+            {showDockerfileTip && (
+              <TipBox>
+                <p className="mb-2">
+                  This is a standard Dockerfile. Each line that installs something
+                  must start with <code className="bg-muted px-1 rounded font-bold">RUN</code>.
+                </p>
+                <p className="mb-1 font-medium">Examples:</p>
+                <pre className="bg-muted/50 rounded p-2 mt-1 overflow-x-auto">
+{`FROM zynqel-base:latest
+RUN npm install -g @qwen-code/qwen-code@latest
 
-          <div className="space-y-2">
-            <Label htmlFor="agent-dockerfile">Dockerfile</Label>
+FROM zynqel-base:latest
+RUN pip install aider-chat
+
+FROM zynqel-base:latest
+RUN apt-get update && apt-get install -y vim`}
+                </pre>
+                <p className="mt-2">
+                  <code className="bg-muted px-1 rounded">zynqel-base</code> includes
+                  Node.js, Python, Git, curl, and common dev tools.
+                </p>
+              </TipBox>
+            )}
             <Textarea
               id="agent-dockerfile"
               value={dockerfile}
               onChange={(e) => setDockerfile(e.target.value)}
-              className="font-mono text-sm min-h-[180px] resize-y"
+              className="font-mono text-sm min-h-[120px] resize-y"
               placeholder={DEFAULT_DOCKERFILE}
             />
-            <p className="text-xs text-muted-foreground">
-              Extends <code className="bg-muted px-1 rounded">zynqel-base:latest</code>{" "}
-              which includes Node.js, Python, Git, and common dev tools.
-              Install your agent CLI here. The image is built automatically when you save.
-            </p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="agent-command">Start Command</Label>
+              <button
+                type="button"
+                onClick={() => setShowCommandTip(!showCommandTip)}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                <Info className="h-3 w-3" />
+                {showCommandTip ? "Hide tips" : "What is this?"}
+              </button>
+            </div>
+            {showCommandTip && (
+              <TipBox>
+                <p className="mb-1">
+                  The shell command that launches your agent inside the container.
+                  This runs when a workspace starts.
+                </p>
+                <p className="mb-1 font-medium">Examples:</p>
+                <ul className="space-y-0.5 ml-3">
+                  <li><code className="bg-muted px-1 rounded">aider</code> — Aider CLI</li>
+                  <li><code className="bg-muted px-1 rounded">qwen</code> — Qwen Code</li>
+                  <li><code className="bg-muted px-1 rounded">codex</code> — OpenAI Codex</li>
+                  <li><code className="bg-muted px-1 rounded">aider --model gpt-4o</code> — with flags</li>
+                </ul>
+              </TipBox>
+            )}
+            <Input
+              id="agent-command"
+              placeholder="aider"
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              className="font-mono text-sm"
+            />
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           {saving && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground animate-pulse">
               Building Docker image... this may take a moment.
             </p>
           )}
