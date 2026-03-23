@@ -78,7 +78,9 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusStopped {
 				m.mu.RUnlock()
 				// Remove the old stopped session to make room.
-				_ = m.Delete(context.Background(), id)
+				if err := m.Delete(context.Background(), id); err != nil {
+					log.Printf("warning: failed to remove stopped session %s: %v", id, err)
+				}
 				m.mu.RLock()
 				break
 			}
@@ -488,6 +490,10 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, s := range sessions {
+		// Wait for any background stop cleanup (commit) to finish first.
+		if s.stopDone != nil {
+			<-s.stopDone
+		}
 		if s.Status == StatusStopped {
 			_ = m.sandbox.Remove(ctx, s.ContainerID)
 		} else {
@@ -630,10 +636,12 @@ func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, s
 		cmds := [][]string{
 			{"git", "config", "--global", "credential.helper", "store"},
 		}
-		// Write credentials for all HTTPS hosts.
+		// Write credentials using GITHUB_TOKEN env var (already injected) to avoid shell injection.
 		if u, err := url.Parse(spec.RepoURL); err == nil && u.Host != "" {
-			credLine := fmt.Sprintf("https://x-access-token:%s@%s", spec.GitToken, u.Host)
-			cmds = append(cmds, []string{"sh", "-c", fmt.Sprintf("echo '%s' >> /root/.git-credentials", credLine)})
+			cmds = append(cmds, []string{
+				"sh", "-c",
+				fmt.Sprintf(`printf 'https://x-access-token:%%s@%s\n' "$GITHUB_TOKEN" >> /root/.git-credentials`, u.Host),
+			})
 		}
 		for _, cmd := range cmds {
 			if _, err := m.sandbox.ExecRun(ctx, containerID, cmd); err != nil {

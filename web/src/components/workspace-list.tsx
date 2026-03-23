@@ -36,6 +36,7 @@ export function WorkspaceList({
     type: "stop" | "delete";
     id: string;
   } | null>(null);
+  const [resumingId, setResumingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -57,8 +58,6 @@ export function WorkspaceList({
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, [fetchData]);
-
-  const [resumingId, setResumingId] = useState<string | null>(null);
 
   const handleStop = async (id: string) => {
     setSessions((prev) =>
