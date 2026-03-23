@@ -27,8 +27,22 @@ const idleCheckInterval = 30 * time.Second
 
 const volumePrefix = "zynqel-ws-"
 
+const stopCleanupTimeout = 35 * time.Second // slightly longer than the 30s cleanup context
+
 // validWorkspaceID matches lowercase alphanumeric, hyphens, underscores.
 var validWorkspaceID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// waitStopDone waits for a session's background stop cleanup to finish, with a timeout.
+func waitStopDone(s *Session) {
+	if s.stopDone == nil {
+		return
+	}
+	select {
+	case <-s.stopDone:
+	case <-time.After(stopCleanupTimeout):
+		log.Printf("warning: stop cleanup timed out for session %s", s.ID)
+	}
+}
 
 // ErrAtCapacity is returned when the maximum number of concurrent sessions is reached.
 var ErrAtCapacity = errors.New("session capacity exceeded")
@@ -36,6 +50,7 @@ var ErrAtCapacity = errors.New("session capacity exceeded")
 type Manager struct {
 	mu          sync.RWMutex
 	sessions    map[string]*Session
+	creating    map[string]struct{} // workspace IDs currently being created (prevents races)
 	sandbox     sandbox.Sandbox
 	policy      policy.ResourcePolicy
 	agents      *agentcfg.Store
@@ -46,6 +61,7 @@ type Manager struct {
 func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy, agents *agentcfg.Store) *Manager {
 	return &Manager{
 		sessions:    make(map[string]*Session),
+		creating:    make(map[string]struct{}),
 		sandbox:     sb,
 		policy:      p,
 		agents:      agents,
@@ -60,37 +76,51 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
-	// Check for existing workspace session AND capacity under a single lock
-	// to prevent races where two requests create duplicate sessions.
-	m.mu.RLock()
+	// Use write lock for all checks + creating guard to prevent race conditions
+	// where two requests create containers for the same workspace concurrently.
+	m.mu.Lock()
 	if spec.WorkspaceID != "" {
 		for _, s := range m.sessions {
 			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusRunning {
-				m.mu.RUnlock()
-				// Return existing session — workspace already has a running session.
+				m.mu.Unlock()
 				return s, nil
 			}
 		}
-	}
-	// Also check stopped sessions with same workspace — clean them up first.
-	if spec.WorkspaceID != "" {
-		for id, s := range m.sessions {
+		// Clean up stopped sessions with same workspace.
+		for sid, s := range m.sessions {
 			if s.Spec.WorkspaceID == spec.WorkspaceID && s.Status == StatusStopped {
-				m.mu.RUnlock()
-				// Remove the old stopped session to make room.
-				if err := m.Delete(context.Background(), id); err != nil {
-					log.Printf("warning: failed to remove stopped session %s: %v", id, err)
-				}
-				m.mu.RLock()
+				delete(m.sessions, sid)
+				go func() {
+					waitStopDone(s)
+					_ = m.sandbox.Remove(context.Background(), s.ContainerID)
+				}()
 				break
 			}
 		}
+		// Check if another goroutine is already creating a session for this workspace.
+		if _, ok := m.creating[spec.WorkspaceID]; ok {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("workspace %s is already being created", spec.WorkspaceID)
+		}
+		m.creating[spec.WorkspaceID] = struct{}{}
 	}
 	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
-		m.mu.RUnlock()
+		if spec.WorkspaceID != "" {
+			delete(m.creating, spec.WorkspaceID)
+		}
+		m.mu.Unlock()
 		return nil, fmt.Errorf("at capacity (%d/%d): %w", len(m.sessions), m.policy.MaxSessions, ErrAtCapacity)
 	}
-	m.mu.RUnlock()
+	m.mu.Unlock()
+
+	// Release the creating guard when we're done (success or failure).
+	if spec.WorkspaceID != "" {
+		defer func() {
+			m.mu.Lock()
+			delete(m.creating, spec.WorkspaceID)
+			m.mu.Unlock()
+		}()
+	}
 
 	// Validate agent and create adapter (nil for bare shell).
 	agentAdapter, err := adapter.New(spec.Agent, m.sandbox, m.agents)
@@ -212,24 +242,6 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil)
 
 	m.mu.Lock()
-	// Recheck under write lock to handle concurrent creates.
-	if m.policy.MaxSessions > 0 && len(m.sessions) >= m.policy.MaxSessions {
-		m.mu.Unlock()
-		log.Printf("warning: capacity race — cleaning up container %s", shortid.Format(s.ContainerID))
-		m.cleanupSession(context.Background(), s)
-		return nil, fmt.Errorf("at capacity (race): %w", ErrAtCapacity)
-	}
-	// Recheck workspace — another request may have created it while we were starting.
-	if spec.WorkspaceID != "" {
-		for _, existing := range m.sessions {
-			if existing.Spec.WorkspaceID == spec.WorkspaceID && existing.Status == StatusRunning {
-				m.mu.Unlock()
-				log.Printf("warning: workspace race — cleaning up duplicate container %s", shortid.Format(s.ContainerID))
-				m.cleanupSession(context.Background(), s)
-				return existing, nil
-			}
-		}
-	}
 	m.sessions[id] = s
 	m.mu.Unlock()
 
@@ -320,9 +332,7 @@ func (m *Manager) Restart(ctx context.Context, id string) (*Session, error) {
 	m.mu.Unlock()
 
 	// Wait for background stop cleanup to finish (commit must complete before remove).
-	if s.stopDone != nil {
-		<-s.stopDone
-	}
+	waitStopDone(s)
 
 	if s.Status == StatusStopped {
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
@@ -345,9 +355,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	m.mu.Unlock()
 
 	// Wait for background stop cleanup to finish before removing.
-	if s.stopDone != nil {
-		<-s.stopDone
-	}
+	waitStopDone(s)
 
 	if s.Status == StatusStopped {
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
@@ -491,10 +499,7 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, s := range sessions {
-		// Wait for any background stop cleanup (commit) to finish first.
-		if s.stopDone != nil {
-			<-s.stopDone
-		}
+		waitStopDone(s)
 		if s.Status == StatusStopped {
 			_ = m.sandbox.Remove(ctx, s.ContainerID)
 		} else {
@@ -633,16 +638,18 @@ func (m *Manager) setupWorkspace(ctx context.Context, containerID string, spec S
 func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, spec SessionSpec) error {
 	// Token-based auth: set up git credential store.
 	if spec.GitToken != "" {
+		u, err := url.Parse(spec.RepoURL)
+		if err != nil {
+			return fmt.Errorf("invalid repo URL for token auth: %w", err)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("repo URL missing host for token auth")
+		}
 		// Configure credential helper so git push/pull works for the agent.
 		cmds := [][]string{
 			{"git", "config", "--global", "credential.helper", "store"},
-		}
-		// Write credentials using GITHUB_TOKEN env var (already injected) to avoid shell injection.
-		if u, err := url.Parse(spec.RepoURL); err == nil && u.Host != "" {
-			cmds = append(cmds, []string{
-				"sh", "-c",
-				fmt.Sprintf(`printf 'https://x-access-token:%%s@%s\n' "$GITHUB_TOKEN" >> /root/.git-credentials`, u.Host),
-			})
+			// Write credentials using GITHUB_TOKEN env var (already injected) to avoid shell injection.
+			{"sh", "-c", fmt.Sprintf(`printf 'https://x-access-token:%%s@%s\n' "$GITHUB_TOKEN" >> /root/.git-credentials`, u.Host)},
 		}
 		for _, cmd := range cmds {
 			if _, err := m.sandbox.ExecRun(ctx, containerID, cmd); err != nil {
