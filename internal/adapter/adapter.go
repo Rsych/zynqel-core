@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
 
@@ -21,25 +22,22 @@ type AgentAdapter interface {
 }
 
 // New returns an AgentAdapter for the given agent name.
+// Built-in agents (claude) have dedicated adapters. Custom agents
+// registered in the store use GenericAdapter.
 // Returns (nil, nil) for "shell" or "" — the caller should fall back to
 // bare container attach when no adapter is returned.
-func New(agent string, sb sandbox.Sandbox) (AgentAdapter, error) {
+func New(agent string, sb sandbox.Sandbox, store *agentcfg.Store) (AgentAdapter, error) {
 	switch agent {
 	case "claude":
 		return NewClaudeAdapter(sb), nil
 	case "shell", "":
 		return nil, nil
 	default:
+		if store != nil {
+			if cfg, ok := store.Get(agent); ok {
+				return NewGenericAdapter(sb, cfg), nil
+			}
+		}
 		return nil, fmt.Errorf("unsupported agent: %s", agent)
-	}
-}
-
-// IsSupported returns true if the agent name is recognized.
-func IsSupported(agent string) bool {
-	switch agent {
-	case "claude", "shell", "":
-		return true
-	default:
-		return false
 	}
 }

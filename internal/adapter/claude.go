@@ -3,7 +3,6 @@ package adapter
 import (
 	"context"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -63,55 +62,6 @@ func (a *ClaudeAdapter) Stop() error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout+5*time.Second)
-	defer cancel()
-
-	// Send SIGTERM to the claude process and its children.
-	_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -TERM -f '/usr/local/bin/claude' || true"})
-
-	// Wait for process to exit gracefully.
-	exited := a.waitForExit(ctx, containerID, stopTimeout)
-
-	if !exited {
-		// Force kill if still running.
-		log.Printf("claude process did not exit after SIGTERM, sending SIGKILL in container %s", shortid.Format(containerID))
-		_, _ = a.sb.ExecRun(ctx, containerID, []string{"sh", "-c", "pkill -KILL -f '/usr/local/bin/claude' || true"})
-	}
-
-	// PTY connection is closed by the session's Broadcaster, not here.
-	// The adapter only handles signal-based process termination.
-
+	gracefulStop(a.sb, containerID, "/usr/local/bin/claude", stopTimeout)
 	return nil
-}
-
-// waitForExit checks if the claude process has exited within the timeout.
-func (a *ClaudeAdapter) waitForExit(ctx context.Context, containerID string, timeout time.Duration) bool {
-	deadline := time.After(timeout)
-	tick := time.NewTicker(500 * time.Millisecond)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-deadline:
-			return false
-		case <-ctx.Done():
-			return false
-		case <-tick.C:
-			// pgrep exits 0 if process found, 1 if not found.
-			// Use a two-command chain: pgrep succeeds → echo "running",
-			// pgrep fails → echo "exited". This way ExecRun only errors
-			// on real failures (container gone, network), not on process exit.
-			output, err := a.sb.ExecRun(ctx, containerID,
-				[]string{"sh", "-c", "pgrep -f '/usr/local/bin/claude' > /dev/null 2>&1 && echo running || echo exited"})
-			if err != nil {
-				// Real error (container gone, etc.) — treat as not exited,
-				// let the caller escalate to SIGKILL.
-				log.Printf("warning: failed to check claude process: %v", err)
-				return false
-			}
-			if strings.TrimSpace(string(output)) == "exited" {
-				return true
-			}
-		}
-	}
 }

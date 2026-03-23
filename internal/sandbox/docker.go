@@ -1,7 +1,10 @@
 package sandbox
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -9,6 +12,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/shortid"
 	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -98,6 +102,14 @@ func (d *DockerSandbox) Create(ctx context.Context, spec Spec) (string, error) {
 				Target: "/workspace",
 			},
 		}
+	}
+	for _, bm := range spec.BindMounts {
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   bm.Source,
+			Target:   bm.Target,
+			ReadOnly: bm.ReadOnly,
+		})
 	}
 
 	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
@@ -198,6 +210,7 @@ func (d *DockerSandbox) Exec(ctx context.Context, id string, cmd []string) (PTYC
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          true,
+		Env:          []string{"TERM=xterm-256color"},
 	}
 	execResp, err := d.cli.ContainerExecCreate(ctx, id, execCfg)
 	if err != nil {
@@ -250,6 +263,37 @@ func (d *DockerSandbox) ExecRun(ctx context.Context, id string, cmd []string) ([
 	return output, nil
 }
 
+// Stats returns point-in-time CPU and memory usage for a container.
+func (d *DockerSandbox) Stats(ctx context.Context, id string) (*ContainerStats, error) {
+	resp, err := d.cli.ContainerStats(ctx, id, false)
+	if err != nil {
+		return nil, fmt.Errorf("stats container %s: %w", shortid.Format(id), err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var v container.StatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return nil, fmt.Errorf("decode stats for %s: %w", shortid.Format(id), err)
+	}
+
+	// Calculate CPU percentage.
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+	var cpuPercent float64
+	if systemDelta > 0 && cpuDelta > 0 {
+		cpuPercent = (cpuDelta / systemDelta) * float64(v.CPUStats.OnlineCPUs) * 100.0
+	}
+
+	memoryMB := float64(v.MemoryStats.Usage) / (1024 * 1024)
+	memoryMaxMB := float64(v.MemoryStats.Limit) / (1024 * 1024)
+
+	return &ContainerStats{
+		CPUPercent: cpuPercent,
+		MemoryMB:   memoryMB,
+		MemoryMax:  memoryMaxMB,
+	}, nil
+}
+
 // Commit saves the current container state as a new image.
 // The image can be used to resume the workspace with all installed packages.
 func (d *DockerSandbox) Commit(ctx context.Context, containerID, imageName string) error {
@@ -269,6 +313,45 @@ func (d *DockerSandbox) Commit(ctx context.Context, containerID, imageName strin
 func (d *DockerSandbox) ImageExists(ctx context.Context, imageName string) bool {
 	_, err := d.cli.ImageInspect(ctx, imageName)
 	return err == nil
+}
+
+// BuildImage builds a Docker image from a Dockerfile string.
+func (d *DockerSandbox) BuildImage(ctx context.Context, dockerfile, imageName string) error {
+	// Create a tar archive with just the Dockerfile.
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: "Dockerfile",
+		Mode: 0o644,
+		Size: int64(len(dockerfile)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("tar header: %w", err)
+	}
+	if _, err := tw.Write([]byte(dockerfile)); err != nil {
+		return fmt.Errorf("tar write: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("tar close: %w", err)
+	}
+
+	log.Printf("building image %s ...", imageName)
+	resp, err := d.cli.ImageBuild(ctx, &buf, build.ImageBuildOptions{
+		Tags:       []string{imageName},
+		Dockerfile: "Dockerfile",
+		Remove:     true,
+	})
+	if err != nil {
+		return fmt.Errorf("build image %s: %w", imageName, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Drain build output to complete the build.
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return fmt.Errorf("build image %s: %w", imageName, err)
+	}
+	log.Printf("built image %s", imageName)
+	return nil
 }
 
 // ListVolumes returns all Docker volumes matching the given name prefix.

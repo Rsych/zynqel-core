@@ -87,8 +87,13 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 			encoded := base64.StdEncoding.EncodeToString(data)
 			sendWSJSON(conn, &wsMu, "pty.output", encoded)
 		}
-		// Channel closed = PTY stream ended.
-		sendWSJSON(conn, &wsMu, "session.state", "stopped")
+		// Channel closed = PTY stream ended (agent exit or session stop).
+		// Close the WebSocket so the client can reconnect to the new broadcaster.
+		wsMu.Lock()
+		_ = conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "stream ended"))
+		wsMu.Unlock()
+		_ = conn.Close()
 	}()
 
 	// Intercept events: detected CLI prompts.

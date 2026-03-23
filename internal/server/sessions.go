@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Rsych/zynqel-core/internal/session"
 )
@@ -23,7 +25,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := s.sessions.Create(r.Context(), spec)
+	// Use a long timeout — git clone + image pull can take minutes.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	sess, err := s.sessions.Create(ctx, spec)
 	if err != nil {
 		if errors.Is(err, session.ErrAtCapacity) {
 			writeError(w, http.StatusTooManyRequests, "session capacity exceeded")
@@ -70,6 +75,35 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent) // 204 — success, no body
 }
 
+// handleStopSession gracefully stops a running session without removing it.
+func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if err := s.sessions.Stop(r.Context(), id); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	sess, _ := s.sessions.Get(id)
+	writeJSON(w, http.StatusOK, sess)
+}
+
+// handleRestartSession creates a new session from a stopped session's spec.
+func (s *Server) handleRestartSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	sess, err := s.sessions.Restart(ctx, id)
+	if err != nil {
+		log.Printf("error restarting session %s: %v", id, err)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, sess)
+}
+
 // handleListWorkspaces returns all saved workspace volumes.
 func (s *Server) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	workspaces, err := s.sessions.ListWorkspaces(r.Context())
@@ -90,6 +124,32 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSessionStats returns container CPU/memory stats.
+func (s *Server) handleSessionStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	stats, err := s.sessions.Stats(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found or not running")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// handleSystemInfo returns system-level information.
+func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+	p := s.sessions.Policy()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"max_sessions": p.MaxSessions,
+		"active_count": s.sessions.ActiveCount(),
+		"memory_mb":    p.MemoryMB,
+		"cpu_quota":    p.CPUQuota,
+		"idle_timeout": p.IdleTimeoutSec,
+		"hard_timeout": p.HardTimeoutSec,
+	})
 }
 
 // writeJSON is a helper to send JSON responses.

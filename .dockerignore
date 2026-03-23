@@ -1,9 +1,15 @@
 .git
 .env
 .claude
+.mcp.json
+.next/
 *.md
 bin/
 images/
+web/
+web-legacy/
 *.key
 *.pem
 *.p12
+credentials*
+node_modules/

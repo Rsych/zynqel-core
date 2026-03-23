@@ -1,11 +1,9 @@
 package session
 
 import (
+	"encoding/json"
 	"sync/atomic"
 	"time"
-
-	"github.com/Rsych/zynqel-core/internal/adapter"
-	"github.com/Rsych/zynqel-core/internal/sandbox"
 )
 
 // Status represents the lifecycle state of a session.
@@ -29,7 +27,19 @@ type SessionSpec struct {
 	WorkspaceID string            `json:"workspace_id,omitempty"` // persistent volume ID (empty = ephemeral)
 	RepoURL     string            `json:"repo_url,omitempty"`
 	Branch      string            `json:"branch,omitempty"`
+	GitToken    string            `json:"git_token,omitempty"`    // PAT for private HTTPS repos
+	SSHKeyPath  string            `json:"ssh_key_path,omitempty"` // host path to SSH key dir (bind mount)
 	Env         map[string]string `json:"env,omitempty"`
+}
+
+// MarshalJSON redacts sensitive fields from API responses.
+func (s SessionSpec) MarshalJSON() ([]byte, error) {
+	type Alias SessionSpec
+	a := Alias(s)
+	if a.GitToken != "" {
+		a.GitToken = "***"
+	}
+	return json.Marshal(a)
 }
 
 // Session is the runtime state — what actually exists.
@@ -45,10 +55,10 @@ type Session struct {
 	Error       string      `json:"error,omitempty"`
 
 	// Unexported — managed by session.Manager, not serialized.
-	adapter      adapter.AgentAdapter // nil for bare shell sessions
-	adapterPTY   sandbox.PTYConn      // PTY from adapter's exec, nil for shell
-	broadcaster  *Broadcaster         // output fan-out + ring buffer
-	lastActivity int64                // unix timestamp, updated atomically
+	broadcaster  *Broadcaster  // output fan-out + ring buffer
+	lastActivity int64         // unix timestamp, updated atomically
+	cleaned      int32         // atomic flag: 1 = cleanup done
+	stopDone     chan struct{} // closed when background stop cleanup finishes
 }
 
 // TouchActivity records current time as last activity.

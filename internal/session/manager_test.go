@@ -47,7 +47,7 @@ func mustManager(t *testing.T, sb *sandbox.DockerSandbox) *Manager {
 	t.Helper()
 	p := policy.DefaultPolicy()
 	p.MaxSessions = 100 // allow more for stability tests
-	return NewManager(sb, p)
+	return NewManager(sb, p, nil)
 }
 
 func goroutineCount() int {

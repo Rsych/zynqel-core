@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/server"
@@ -48,15 +50,29 @@ func main() {
 		log.Printf("orphan sweep: removed %d stale container(s)", n)
 	}
 
-	sm := session.NewManager(sb, rp)
-
-	// Serve web dev console from ./web directory if it exists.
-	var webFS fs.FS
-	if info, err := os.Stat("web"); err == nil && info.IsDir() {
-		webFS = os.DirFS("web")
-		log.Println("serving dev console from ./web")
+	// Load custom agent configs.
+	dataDir := os.Getenv("ZYNQEL_DATA_DIR")
+	if dataDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("cannot determine home directory: %v (set ZYNQEL_DATA_DIR to override)", err)
+		}
+		dataDir = filepath.Join(home, ".zynqel")
 	}
-	srv := server.New(sm, webFS)
+	agentStore := agentcfg.NewStore(filepath.Join(dataDir, "agents.json"))
+	if err := agentStore.Load(); err != nil {
+		log.Printf("warning: failed to load agent configs: %v", err)
+	}
+
+	sm := session.NewManager(sb, rp, agentStore)
+
+	// Serve dashboard from web/out/ (Next.js static export).
+	var webFS fs.FS
+	if info, err := os.Stat("web/out"); err == nil && info.IsDir() {
+		webFS = os.DirFS("web/out")
+		log.Println("serving dashboard from web/out/")
+	}
+	srv := server.New(sm, agentStore, sb, webFS)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%s", port),

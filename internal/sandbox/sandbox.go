@@ -22,10 +22,19 @@ type Sandbox interface {
 	Exec(ctx context.Context, id string, cmd []string) (PTYConn, error)
 	ExecRun(ctx context.Context, id string, cmd []string) ([]byte, error)
 	Resize(ctx context.Context, id string, cols, rows int) error
+	Stats(ctx context.Context, id string) (*ContainerStats, error)
 	Commit(ctx context.Context, containerID, imageName string) error
 	ImageExists(ctx context.Context, imageName string) bool
+	BuildImage(ctx context.Context, dockerfile, imageName string) error
 	ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error)
 	RemoveVolume(ctx context.Context, name string) error
+}
+
+// ContainerStats holds point-in-time resource usage for a container.
+type ContainerStats struct {
+	CPUPercent float64 `json:"cpu_percent"`
+	MemoryMB   float64 `json:"memory_mb"`
+	MemoryMax  float64 `json:"memory_max_mb"`
 }
 
 // VolumeInfo describes a Docker volume.
@@ -47,6 +56,13 @@ type PTYConn interface {
 // Kept separate from session.SessionSpec — the sandbox
 // doesn't need to know about agents or repos, just the
 // container config.
+// BindMount describes a host path to mount into the container.
+type BindMount struct {
+	Source   string // host path
+	Target   string // container path
+	ReadOnly bool
+}
+
 type Spec struct {
 	Image        string            // Docker image to run
 	Cmd          []string          // Command to run (nil = use image default)
@@ -56,4 +72,5 @@ type Spec struct {
 	NanoCPUs     int64             // CPU limit in Docker NanoCPU units (1e9 = 1 core, 0 = no limit)
 	VolumeName   string            // Docker volume to mount at /workspace (empty = no volume)
 	VolumeLabels map[string]string // Labels for the volume (set on first creation)
+	BindMounts   []BindMount       // Additional bind mounts (e.g. SSH keys)
 }
