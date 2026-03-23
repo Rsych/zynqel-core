@@ -150,11 +150,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		},
 	}
 
-	// Mount host SSH key directory if specified.
+	// Mount host SSH key directory to a temp path (read-only).
+	// setupGitCredentials copies keys to /root/.ssh with correct permissions.
 	if spec.SSHKeyPath != "" {
 		sbSpec.BindMounts = append(sbSpec.BindMounts, sandbox.BindMount{
 			Source:   spec.SSHKeyPath,
-			Target:   "/root/.ssh",
+			Target:   "/tmp/.ssh-host",
 			ReadOnly: true,
 		})
 	}
@@ -651,11 +652,10 @@ func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, s
 		log.Printf("configured git token credentials in container")
 	}
 
-	// SSH key mount: fix permissions and add known hosts.
+	// SSH key mount: copy from read-only bind mount to /root/.ssh with correct permissions.
 	if spec.SSHKeyPath != "" {
-		// Copy SSH keys to a writable location (bind mount is read-only).
 		cmds := [][]string{
-			{"sh", "-c", "cp -r /root/.ssh /tmp/.ssh-copy && rm -rf /root/.ssh && mv /tmp/.ssh-copy /root/.ssh"},
+			{"sh", "-c", "cp -r /tmp/.ssh-host /root/.ssh"},
 			{"chmod", "700", "/root/.ssh"},
 			{"sh", "-c", "chmod 600 /root/.ssh/* 2>/dev/null || true"},
 			{"sh", "-c", "ssh-keyscan github.com gitlab.com bitbucket.org >> /root/.ssh/known_hosts 2>/dev/null"},
