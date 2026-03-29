@@ -13,7 +13,9 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// TODO: restrict to allowed origins for production use
+		// Accept all origins — Core is designed to run behind a reverse proxy
+		// or within a trusted network. Origin restrictions belong in the proxy
+		// layer (nginx, Caddy, etc.) or the Cloud SaaS layer.
 		return true
 	},
 }

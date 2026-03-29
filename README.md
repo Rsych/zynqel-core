@@ -221,6 +221,14 @@ make clean          # Remove build artifacts, containers, volumes, images
 make web-install    # Install web dependencies (npm install)
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code conventions, and PR guidelines.
+
+## Security
+
+Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
+
 ## License
 
 AGPL-3.0 — free to self-host. Building a SaaS on top requires open-sourcing your code.
