@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import type { AgentConfig } from "@/lib/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface CreateDialogProps {
@@ -43,6 +43,10 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
   const [authMethod, setAuthMethod] = useState("none");
   const [gitToken, setGitToken] = useState("");
   const [sshKeyPath, setSshKeyPath] = useState("~/.ssh");
+  const [envVars, setEnvVars] = useState<Record<string, string>>({});
+  const [envKey, setEnvKey] = useState("");
+  const [envValue, setEnvValue] = useState("");
+  const envValueRef = useRef<HTMLInputElement>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -55,6 +59,30 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
   const builtinAgents = agents.filter((a) => a.builtin);
   const customAgents = agents.filter((a) => !a.builtin);
 
+  const isValidEnvKey = (key: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
+
+  const addEnvVar = () => {
+    const key = envKey.trim();
+    if (!key || !isValidEnvKey(key)) return;
+    setEnvVars((prev) => ({ ...prev, [key]: envValue }));
+    setEnvKey("");
+    setEnvValue("");
+  };
+
+  const removeEnvVar = (key: string) => {
+    setEnvVars((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const fillPreset = (key: string) => {
+    setEnvKey(key);
+    setEnvValue("");
+    setTimeout(() => envValueRef.current?.focus(), 0);
+  };
+
   const handleCreate = async () => {
     setCreating(true);
     setError("");
@@ -66,6 +94,7 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
         branch: branch || undefined,
         git_token: authMethod === "token" ? gitToken : undefined,
         ssh_key_path: authMethod === "ssh" ? sshKeyPath : undefined,
+        env: Object.keys(envVars).length > 0 ? envVars : undefined,
       });
       onOpenChange(false);
       resetForm();
@@ -87,6 +116,9 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
     setAuthMethod("none");
     setGitToken("");
     setSshKeyPath("~/.ssh");
+    setEnvVars({});
+    setEnvKey("");
+    setEnvValue("");
     setError("");
   };
 
@@ -98,7 +130,7 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
         if (!v) resetForm();
       }}
     >
-      <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>New Workspace</DialogTitle>
           <DialogDescription>
@@ -236,6 +268,90 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
               )}
             </>
           )}
+
+          <div className="space-y-2">
+            <Label>
+              Environment Variables{" "}
+              <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="KEY"
+                value={envKey}
+                onChange={(e) => setEnvKey(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addEnvVar();
+                  }
+                }}
+                className="font-mono text-sm flex-1"
+              />
+              <Input
+                ref={envValueRef}
+                type="password"
+                placeholder="value"
+                value={envValue}
+                onChange={(e) => setEnvValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addEnvVar();
+                  }
+                }}
+                className="font-mono text-sm flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={addEnvVar}
+                disabled={!envKey.trim() || !isValidEnvKey(envKey.trim())}
+                className="shrink-0"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {["ANTHROPIC_API_KEY", "OPENAI_API_KEY"].map((preset) => (
+                <Button
+                  key={preset}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs font-mono"
+                  onClick={() => fillPreset(preset)}
+                  disabled={preset in envVars}
+                >
+                  +{preset.replace("_API_KEY", "")}
+                </Button>
+              ))}
+            </div>
+            {Object.keys(envVars).length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {Object.entries(envVars).map(([key, value]) => (
+                  <span
+                    key={key}
+                    className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs font-mono"
+                  >
+                    {key}=
+                    {value ? (
+                      "••••"
+                    ) : (
+                      <span className="text-muted-foreground italic">empty</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeEnvVar(key)}
+                      className="text-muted-foreground hover:text-foreground ml-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
 
           {error && (
             <p className="text-sm text-destructive">{error}</p>
