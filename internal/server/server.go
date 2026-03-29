@@ -66,11 +66,14 @@ func (s *Server) routes(webFS fs.FS) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// CORS: allow cross-origin requests from localhost dev servers (e.g. Next.js on :3000).
+	// In production, Go serves the static export so all requests are same-origin.
 	origin := r.Header.Get("Origin")
-	if origin != "" {
+	if origin != "" && strings.HasPrefix(origin, "http://localhost") {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Max-Age", "86400")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
