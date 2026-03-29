@@ -43,7 +43,7 @@ func testSpec() SessionSpec {
 	return SessionSpec{Agent: "shell", Image: testImage}
 }
 
-func mustManager(t *testing.T, sb *sandbox.DockerSandbox) *Manager {
+func mustManager(t *testing.T, sb sandbox.Sandbox) *Manager {
 	t.Helper()
 	p := policy.DefaultPolicy()
 	p.MaxSessions = 100 // allow more for stability tests
@@ -126,10 +126,9 @@ func TestManager_KillDuringActiveTask(t *testing.T) {
 
 // TestManager_RapidCreateKill runs 20 rapid create/delete cycles and verifies
 // no containers leak and goroutine count stays stable.
+// Uses mock sandbox to avoid Docker-dependent container stop timeouts in CI.
 func TestManager_RapidCreateKill(t *testing.T) {
-	_ = mustDockerClient(t)
-
-	sb := mustSandbox(t)
+	sb := newMockSandbox()
 	m := mustManager(t, sb)
 	ctx := context.Background()
 
@@ -169,10 +168,9 @@ func TestManager_RapidCreateKill(t *testing.T) {
 
 // TestManager_ConcurrentCreateKill runs concurrent create/delete operations
 // to verify thread safety.
+// Uses mock sandbox to avoid Docker-dependent container stop timeouts in CI.
 func TestManager_ConcurrentCreateKill(t *testing.T) {
-	_ = mustDockerClient(t)
-
-	sb := mustSandbox(t)
+	sb := newMockSandbox()
 	m := mustManager(t, sb)
 	ctx := context.Background()
 
