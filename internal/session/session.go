@@ -39,6 +39,13 @@ func (s SessionSpec) MarshalJSON() ([]byte, error) {
 	if a.GitToken != "" {
 		a.GitToken = "***"
 	}
+	if a.Env != nil {
+		redacted := make(map[string]string, len(a.Env))
+		for k := range a.Env {
+			redacted[k] = "***"
+		}
+		a.Env = redacted
+	}
 	return json.Marshal(a)
 }
 
