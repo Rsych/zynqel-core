@@ -59,9 +59,11 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
   const builtinAgents = agents.filter((a) => a.builtin);
   const customAgents = agents.filter((a) => !a.builtin);
 
+  const isValidEnvKey = (key: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
+
   const addEnvVar = () => {
     const key = envKey.trim();
-    if (!key) return;
+    if (!key || !isValidEnvKey(key)) return;
     setEnvVars((prev) => ({ ...prev, [key]: envValue }));
     setEnvKey("");
     setEnvValue("");
@@ -304,7 +306,7 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
                 variant="outline"
                 size="icon"
                 onClick={addEnvVar}
-                disabled={!envKey.trim()}
+                disabled={!envKey.trim() || !isValidEnvKey(envKey.trim())}
                 className="shrink-0"
               >
                 <Plus className="h-4 w-4" />

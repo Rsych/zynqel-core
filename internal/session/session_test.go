@@ -11,8 +11,8 @@ func TestSessionSpec_MarshalJSON_RedactsEnv(t *testing.T) {
 		GitToken: "ghp_secret123",
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": "sk-ant-secret",
-			"OPENAI_API_KEY":   "sk-openai-secret",
-			"DEBUG":            "true",
+			"OPENAI_API_KEY":    "sk-openai-secret",
+			"DEBUG":             "true",
 		},
 	}
 
