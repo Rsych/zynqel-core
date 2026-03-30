@@ -3,8 +3,12 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Zynqel Console",
+  title: {
+    default: "Zynqel Console",
+    template: "%s — Zynqel",
+  },
   description: "Workspace management dashboard",
+  icons: { icon: "/console/icon.svg" },
 };
 
 export default function RootLayout({

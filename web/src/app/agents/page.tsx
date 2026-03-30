@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AgentConfigList } from "@/components/agent-config";
 import { ArrowLeft } from "lucide-react";
 
 export default function AgentsPage() {
+  useEffect(() => { document.title = "Agents — Zynqel"; }, []);
   return (
     <div className="min-h-screen">
       <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">

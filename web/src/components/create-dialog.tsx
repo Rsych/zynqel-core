@@ -96,8 +96,8 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
         ssh_key_path: authMethod === "ssh" ? sshKeyPath : undefined,
         env: Object.keys(envVars).length > 0 ? envVars : undefined,
       });
-      onOpenChange(false);
       resetForm();
+      onOpenChange(false);
       router.push(`/workspace?id=${session.id}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create workspace";
