@@ -69,6 +69,11 @@ function WorkspaceDetail() {
     return () => clearInterval(interval);
   }, [id]);
 
+  useEffect(() => {
+    const name = session?.spec.workspace_id || session?.id.slice(0, 8);
+    document.title = name ? `${name} — Zynqel` : "Zynqel Console";
+  }, [session?.spec.workspace_id, session?.id]);
+
   const handleStop = async () => {
     if (!id || !session) return;
     setSession({ ...session, status: "stopped" });
@@ -133,11 +138,6 @@ function WorkspaceDetail() {
 
   const status = statusConfig[session.status] || statusConfig.stopped;
   const isRunning = session.status === "running";
-  const displayName = session.spec.workspace_id || session.id.slice(0, 8);
-
-  useEffect(() => {
-    document.title = `${displayName} — Zynqel`;
-  }, [displayName]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
