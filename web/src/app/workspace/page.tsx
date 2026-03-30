@@ -69,6 +69,11 @@ function WorkspaceDetail() {
     return () => clearInterval(interval);
   }, [id]);
 
+  useEffect(() => {
+    const name = session?.spec.workspace_id || session?.id?.slice(0, 8);
+    document.title = name ? `${name} — Zynqel` : "Zynqel Console";
+  }, [session?.spec.workspace_id, session?.id]);
+
   const handleStop = async () => {
     if (!id || !session) return;
     setSession({ ...session, status: "stopped" });
@@ -138,7 +143,7 @@ function WorkspaceDetail() {
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-border bg-background/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="mx-auto max-w-7xl flex items-center justify-between px-6 h-14">
+        <div className="mx-auto max-w-7xl flex items-center justify-between px-3 sm:px-6 h-14">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <Link href="/">
@@ -165,22 +170,22 @@ function WorkspaceDetail() {
             {!isRunning && (
               <Button size="sm" onClick={handleRestart} disabled={restarting}>
                 {restarting ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 sm:mr-1.5 animate-spin" />
                 ) : (
-                  <Play className="h-3.5 w-3.5 mr-1.5" />
+                  <Play className="h-3.5 w-3.5 sm:mr-1.5" />
                 )}
-                {restarting ? "Starting..." : "Start"}
+                <span className="hidden sm:inline">{restarting ? "Starting..." : "Start"}</span>
               </Button>
             )}
             {isRunning && (
               <Button variant="secondary" size="sm" onClick={() => setConfirmStop(true)}>
-                <Square className="h-3.5 w-3.5 mr-1.5" />
-                Stop
+                <Square className="h-3.5 w-3.5 sm:mr-1.5" />
+                <span className="hidden sm:inline">Stop</span>
               </Button>
             )}
             <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              Remove
+              <Trash2 className="h-3.5 w-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">Remove</span>
             </Button>
           </div>
         </div>

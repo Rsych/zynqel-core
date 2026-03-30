@@ -218,9 +218,14 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 			`grep -q '%s' /root/.bashrc 2>/dev/null || (`+
 				`echo '%s' >> /root/.bashrc; `+
 				`echo 'echo ""' >> /root/.bashrc; `+
-				`echo 'echo "  \033[1;32m▸ %s\033[0m is installed. Run \033[1m%s\033[0m to start."' >> /root/.bashrc; `+
+				`echo 'echo "  \033[1;32m┌────────────────────────────────────────┐\033[0m"' >> /root/.bashrc; `+
+				`echo 'echo "  \033[1;32m│\033[0m  \033[1;32m▸ %s\033[0m is ready.%-*s\033[1;32m│\033[0m"' >> /root/.bashrc; `+
+				`echo 'echo "  \033[1;32m│\033[0m    Run \033[1m%s\033[0m to start.%-*s\033[1;32m│\033[0m"' >> /root/.bashrc; `+
+				`echo 'echo "  \033[1;32m└────────────────────────────────────────┘\033[0m"' >> /root/.bashrc; `+
 				`echo 'echo ""' >> /root/.bashrc)`,
-			marker, marker, spec.Agent, spec.Agent)
+			marker, marker,
+			spec.Agent, 27-len(spec.Agent), "",
+			spec.Agent, 22-len(spec.Agent), "")
 		_, _ = m.sandbox.ExecRun(ctx, containerID, []string{"sh", "-c", welcomeCmd})
 	}
 

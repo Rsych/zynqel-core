@@ -30,7 +30,7 @@ export function NavBar() {
 
         <div className="flex items-center gap-3">
           {info && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
               <Activity className="h-3.5 w-3.5" />
               <span>
                 {info.active_count}/{info.max_sessions || "∞"} sessions

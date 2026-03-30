@@ -105,18 +105,20 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
         }
       });
 
-      // Resize handling
+      // Resize handling — use rAF to let xterm measure after layout settles.
       resizeObserver = new ResizeObserver(() => {
-        fitAddon?.fit();
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "pty.resize",
-              data: { cols: term.cols, rows: term.rows },
-            })
-          );
-        }
+        requestAnimationFrame(() => {
+          fitAddon?.fit();
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "pty.resize",
+                data: { cols: term.cols, rows: term.rows },
+              })
+            );
+          }
+        });
       });
       if (containerRef.current) {
         resizeObserver.observe(containerRef.current);
@@ -139,6 +141,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
         if (disposed) return;
         reconnectAttempts.current = 0;
         setStatus("connected");
+        fitAddon?.fit();
         ws.send(
           JSON.stringify({
             type: "pty.resize",
@@ -174,8 +177,8 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
         }, delay);
       };
 
-      ws.onerror = (e) => {
-        console.error("WebSocket error:", e);
+      ws.onerror = () => {
+        // Connection errors are handled by onclose → reconnect logic.
       };
     }
 
