@@ -70,7 +70,7 @@ function WorkspaceDetail() {
   }, [id]);
 
   useEffect(() => {
-    const name = session?.spec.workspace_id || session?.id.slice(0, 8);
+    const name = session?.spec.workspace_id || session?.id?.slice(0, 8);
     document.title = name ? `${name} — Zynqel` : "Zynqel Console";
   }, [session?.spec.workspace_id, session?.id]);
 
