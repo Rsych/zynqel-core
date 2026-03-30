@@ -177,8 +177,8 @@ export const TerminalView = forwardRef<TerminalViewHandle, { sessionId: string }
         }, delay);
       };
 
-      ws.onerror = (e) => {
-        console.error("WebSocket error:", e);
+      ws.onerror = () => {
+        // Connection errors are handled by onclose → reconnect logic.
       };
     }
 
