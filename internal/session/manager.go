@@ -527,12 +527,18 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 		m.mu.Unlock()
 		return fmt.Errorf("workspace %s is currently being created", oldID)
 	}
+	if _, ok := m.creating[newID]; ok {
+		m.mu.Unlock()
+		return fmt.Errorf("workspace %s is currently being created", newID)
+	}
 	m.creating[oldID] = struct{}{}
+	m.creating[newID] = struct{}{}
 	m.mu.Unlock()
 
 	defer func() {
 		m.mu.Lock()
 		delete(m.creating, oldID)
+		delete(m.creating, newID)
 		m.mu.Unlock()
 	}()
 
@@ -568,6 +574,7 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 			// Rollback: remove the new volume.
 			if rmErr := m.sandbox.RemoveVolume(ctx, newVolume); rmErr != nil {
 				log.Printf("ERROR: rollback failed, orphaned volume %s must be removed manually: %v", newVolume, rmErr)
+				return fmt.Errorf("tag image: %w (rollback failed, orphaned volume %s)", err, newVolume)
 			}
 			return fmt.Errorf("tag image: %w", err)
 		}
@@ -820,10 +827,14 @@ func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, s
 }
 
 // saveSessionRecord persists session metadata to the log store.
+// Reads session fields under m.mu to prevent data races with concurrent mutations.
 func (m *Manager) saveSessionRecord(s *Session) {
 	if m.logStore == nil {
 		return
 	}
+
+	// Snapshot mutable fields under lock.
+	m.mu.RLock()
 	r := sessionlog.Record{
 		ID:          s.ID,
 		WorkspaceID: s.Spec.WorkspaceID,
@@ -833,15 +844,15 @@ func (m *Manager) saveSessionRecord(s *Session) {
 		Branch:      s.Spec.Branch,
 		Status:      string(s.Status),
 		CreatedAt:   s.CreatedAt,
+		Error:       s.Error,
 	}
 	if s.StoppedAt != nil {
 		r.StoppedAt = *s.StoppedAt
 	} else {
 		r.StoppedAt = time.Now()
 	}
-	if s.Error != "" {
-		r.Error = s.Error
-	}
+	m.mu.RUnlock()
+
 	if err := m.logStore.Save(r); err != nil {
 		log.Printf("warning: failed to save session record %s: %v", s.ID, err)
 	}
