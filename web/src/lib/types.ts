@@ -51,3 +51,18 @@ export interface Workspace {
   image?: string;
   agent?: string;
 }
+
+export interface SessionRecord {
+  id: string;
+  workspace_id?: string;
+  agent: string;
+  image?: string;
+  repo_url?: string;
+  branch?: string;
+  status: string;
+  created_at: string;
+  stopped_at?: string;
+  duration?: string;
+  error?: string;
+  has_log: boolean;
+}

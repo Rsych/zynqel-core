@@ -60,6 +60,12 @@ func (m *mockSandbox) ListVolumes(_ context.Context, _ string) ([]sandbox.Volume
 
 func (m *mockSandbox) RemoveVolume(_ context.Context, _ string) error { return nil }
 
+func (m *mockSandbox) CopyVolume(_ context.Context, _, _ string) error { return nil }
+
+func (m *mockSandbox) TagImage(_ context.Context, _, _ string) error { return nil }
+
+func (m *mockSandbox) RemoveImage(_ context.Context, _ string) error { return nil }
+
 // pipePTYConn adapts io.Pipe into a sandbox.PTYConn.
 // Closing the reader unblocks the broadcaster's readLoop.
 type pipePTYConn struct {

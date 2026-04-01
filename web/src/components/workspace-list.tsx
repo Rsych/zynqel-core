@@ -18,7 +18,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "./confirm-dialog";
-import { Search, Inbox, Play, Trash2, HardDrive, Loader2 } from "lucide-react";
+import { RenameDialog } from "./rename-dialog";
+import { SessionHistory } from "./session-history";
+import { Search, Inbox, Play, Trash2, HardDrive, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 export function WorkspaceList({
@@ -37,6 +39,7 @@ export function WorkspaceList({
     id: string;
   } | null>(null);
   const [resumingId, setResumingId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -122,6 +125,21 @@ export function WorkspaceList({
       toast.success("Workspace deleted");
     } catch (err) {
       toast.error("Failed to delete workspace");
+    }
+  };
+
+  const handleRename = async (oldId: string, newId: string) => {
+    toast.loading("Renaming workspace...", { id: "rename" });
+    try {
+      await api.renameWorkspace(oldId, newId);
+      setRenameTarget(null);
+      await fetchData();
+      toast.success("Workspace renamed", { id: "rename" });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to rename workspace",
+        { id: "rename" }
+      );
     }
   };
 
@@ -224,6 +242,7 @@ export function WorkspaceList({
                   onStop={(id) => setConfirmAction({ type: "stop", id })}
                   onRestart={handleRestart}
                   onDelete={(id) => setConfirmAction({ type: "delete", id })}
+                  onRename={(wsId) => setRenameTarget(wsId)}
                 />
               ))}
             </div>
@@ -278,6 +297,14 @@ export function WorkspaceList({
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setRenameTarget(ws.id)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive"
                             onClick={() => handleDeleteWorkspace(ws.id)}
                           >
@@ -291,6 +318,9 @@ export function WorkspaceList({
               </div>
             </div>
           )}
+
+          {/* Session history */}
+          {statusFilter === "all" && <SessionHistory />}
         </>
       )}
 
@@ -315,6 +345,14 @@ export function WorkspaceList({
         onConfirm={() => {
           if (confirmAction) handleDelete(confirmAction.id);
           setConfirmAction(null);
+        }}
+      />
+      <RenameDialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => !open && setRenameTarget(null)}
+        currentName={renameTarget || ""}
+        onConfirm={(newName) => {
+          if (renameTarget) handleRename(renameTarget, newName);
         }}
       />
     </div>

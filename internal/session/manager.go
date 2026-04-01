@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"regexp"
@@ -18,6 +19,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
+	"github.com/Rsych/zynqel-core/internal/sessionlog"
 	"github.com/Rsych/zynqel-core/internal/shortid"
 )
 
@@ -54,17 +56,19 @@ type Manager struct {
 	sandbox     sandbox.Sandbox
 	policy      policy.ResourcePolicy
 	agents      *agentcfg.Store
+	logStore    *sessionlog.Store
 	idleTimeout time.Duration
 	hardTimeout time.Duration
 }
 
-func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy, agents *agentcfg.Store) *Manager {
+func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy, agents *agentcfg.Store, logStore *sessionlog.Store) *Manager {
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		creating:    make(map[string]struct{}),
 		sandbox:     sb,
 		policy:      p,
 		agents:      agents,
+		logStore:    logStore,
 		idleTimeout: time.Duration(p.IdleTimeoutSec) * time.Second,
 		hardTimeout: time.Duration(p.HardTimeoutSec) * time.Second,
 	}
@@ -236,6 +240,26 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("attach for broadcast: %w", err)
 	}
 
+	// Open PTY log writer if session logging is enabled.
+	// Ownership transfers to the broadcaster's readLoop, which closes it on exit.
+	// Guard against leaks if anything fails before NewBroadcaster.
+	var logWriter io.WriteCloser
+	if m.logStore != nil && m.logStore.LogPTY() {
+		w, err := m.logStore.OpenLogWriter(id)
+		if err != nil {
+			log.Printf("warning: failed to open PTY log for session %s: %v", id, err)
+		} else {
+			logWriter = w
+		}
+	}
+	defer func() {
+		// Safety net: if we return before NewBroadcaster takes ownership, close the writer.
+		// The logWriter = nil after NewBroadcaster (below) is critical to prevent double-close.
+		if logWriter != nil {
+			_ = logWriter.Close()
+		}
+	}()
+
 	s := &Session{
 		ID:          id,
 		Spec:        spec,
@@ -244,7 +268,8 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		CreatedAt:   time.Now(),
 	}
 	s.TouchActivity()
-	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil)
+	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil, logWriter)
+	logWriter = nil // ownership transferred to broadcaster
 
 	m.mu.Lock()
 	m.sessions[id] = s
@@ -296,6 +321,8 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 	s.stopDone = make(chan struct{})
 
 	// Heavy cleanup in background — commit, then stop container.
+	// Note: broadcaster.Close() triggers readLoop exit, which closes the PTY logWriter
+	// via its defer chain (see readLoop in broadcaster.go).
 	go func() {
 		defer close(s.stopDone)
 		if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
@@ -316,6 +343,7 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 		if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 			log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
 		}
+		m.saveSessionRecord(s)
 		log.Printf("session %s stopped", s.ID)
 	}()
 
@@ -363,9 +391,11 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	waitStopDone(s)
 
 	if s.Status == StatusStopped {
+		// Stop goroutine already saved the session record.
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
 	} else {
 		m.cleanupSession(ctx, s)
+		m.saveSessionRecord(s)
 	}
 	return nil
 }
@@ -464,6 +494,128 @@ func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
 	return m.sandbox.RemoveVolume(ctx, volumePrefix+wsID)
 }
 
+// RenameWorkspace renames a workspace by copying its volume and committed image.
+// Returns an error if the workspace has a running session or the new ID already exists.
+// Uses the creating guard to prevent new sessions from starting on the workspace during rename.
+func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) error {
+	newID = strings.ToLower(newID)
+	if !validWorkspaceID.MatchString(newID) {
+		return fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", newID)
+	}
+	if oldID == newID {
+		return nil
+	}
+
+	// Hold write lock for check + creating guard to prevent TOCTOU race:
+	// no new session can start on oldID while the rename is in progress.
+	// Create() checks m.creating[spec.WorkspaceID] before proceeding,
+	// so setting m.creating[oldID] blocks concurrent session creation.
+	m.mu.Lock()
+	var stoppingSessions []*Session
+	for _, s := range m.sessions {
+		if s.Spec.WorkspaceID != oldID {
+			continue
+		}
+		if s.Status == StatusRunning {
+			m.mu.Unlock()
+			return fmt.Errorf("cannot rename workspace with active session")
+		}
+		if s.Status == StatusStopped {
+			stoppingSessions = append(stoppingSessions, s)
+		}
+	}
+	if _, ok := m.creating[oldID]; ok {
+		m.mu.Unlock()
+		return fmt.Errorf("workspace %s is currently being created", oldID)
+	}
+	if _, ok := m.creating[newID]; ok {
+		m.mu.Unlock()
+		return fmt.Errorf("workspace %s is currently being created", newID)
+	}
+	m.creating[oldID] = struct{}{}
+	m.creating[newID] = struct{}{}
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		delete(m.creating, oldID)
+		delete(m.creating, newID)
+		m.mu.Unlock()
+	}()
+
+	// Wait for any mid-stop sessions to finish cleanup (commit + container stop)
+	// before copying the volume, to avoid racing with the container commit.
+	for _, s := range stoppingSessions {
+		waitStopDone(s)
+	}
+
+	// Check target volume doesn't already exist.
+	oldVolume := volumePrefix + oldID
+	newVolume := volumePrefix + newID
+	vols, err := m.sandbox.ListVolumes(ctx, newVolume)
+	if err != nil {
+		return fmt.Errorf("check target volume: %w", err)
+	}
+	for _, v := range vols {
+		if v.Name == newVolume {
+			return fmt.Errorf("workspace %q already exists", newID)
+		}
+	}
+
+	// Log intent before starting multi-step operation so a future reconciliation
+	// tool can detect orphaned volumes from incomplete renames.
+	log.Printf("rename workspace: starting %s → %s (volume %s → %s)", oldID, newID, oldVolume, newVolume)
+
+	// Copy volume data.
+	// Crash recovery: if the process crashes after CopyVolume but before
+	// RemoveVolume, both volumes will exist. Recovery is manual:
+	//   docker volume rm zynqel-ws-<newID>   (if rename should be retried)
+	//   docker volume rm zynqel-ws-<oldID>   (if rename should be completed)
+	// A future reconciliation pass could detect duplicate volumes by checking
+	// for pairs where one is a prefix-match of a recent rename log entry.
+	if err := m.sandbox.CopyVolume(ctx, oldVolume, newVolume); err != nil {
+		return fmt.Errorf("copy volume: %w", err)
+	}
+
+	// Rename committed image if it exists.
+	// Note: if old image removal fails, the stale tag persists. A subsequent
+	// rename back to the old ID could find this stale image — operators should
+	// run `docker image prune` periodically to clean up dangling tags.
+	oldImage := oldVolume + ":latest"
+	newImage := newVolume + ":latest"
+	if m.sandbox.ImageExists(ctx, oldImage) {
+		if err := m.sandbox.TagImage(ctx, oldImage, newImage); err != nil {
+			// Rollback: remove the new volume.
+			if rmErr := m.sandbox.RemoveVolume(ctx, newVolume); rmErr != nil {
+				log.Printf("ERROR: rollback failed, orphaned volume %s must be removed manually: %v", newVolume, rmErr)
+				return fmt.Errorf("tag image: %w (rollback failed, orphaned volume %s)", err, newVolume)
+			}
+			return fmt.Errorf("tag image: %w", err)
+		}
+		// Best-effort removal of old tag; new tag already exists.
+		if err := m.sandbox.RemoveImage(ctx, oldImage); err != nil {
+			log.Printf("warning: failed to remove old image tag %s (new tag exists): %v", oldImage, err)
+		}
+	}
+
+	// Remove old volume.
+	if err := m.sandbox.RemoveVolume(ctx, oldVolume); err != nil {
+		log.Printf("warning: failed to remove old volume %s: %v", oldVolume, err)
+	}
+
+	// Update any stopped sessions referencing the old workspace ID.
+	m.mu.Lock()
+	for _, s := range m.sessions {
+		if s.Spec.WorkspaceID == oldID {
+			s.Spec.WorkspaceID = newID
+		}
+	}
+	m.mu.Unlock()
+
+	log.Printf("renamed workspace %s → %s", oldID, newID)
+	return nil
+}
+
 // Stats returns container resource usage for a session.
 func (m *Manager) Stats(ctx context.Context, id string) (*sandbox.ContainerStats, error) {
 	m.mu.RLock()
@@ -506,9 +658,11 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	for _, s := range sessions {
 		waitStopDone(s)
 		if s.Status == StatusStopped {
+			// Stop goroutine already saved the session record.
 			_ = m.sandbox.Remove(ctx, s.ContainerID)
 		} else {
 			m.cleanupSession(ctx, s)
+			m.saveSessionRecord(s)
 		}
 		log.Printf("cleaned up session %s", s.ID)
 	}
@@ -516,6 +670,9 @@ func (m *Manager) Shutdown(ctx context.Context) {
 
 // cleanupSession stops the broadcaster and container.
 // Safe to call multiple times — guarded by atomic flag.
+// Does NOT save a session history record; callers that need persistence
+// should call saveSessionRecord separately (early-error cleanup during Create
+// passes incomplete sessions that shouldn't be recorded).
 func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
@@ -681,6 +838,38 @@ func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, s
 	}
 
 	return nil
+}
+
+// saveSessionRecord persists session metadata to the log store.
+// Reads session fields under m.mu to prevent data races with concurrent mutations.
+func (m *Manager) saveSessionRecord(s *Session) {
+	if m.logStore == nil {
+		return
+	}
+
+	// Snapshot mutable fields under lock.
+	m.mu.RLock()
+	r := sessionlog.Record{
+		ID:          s.ID,
+		WorkspaceID: s.Spec.WorkspaceID,
+		Agent:       s.Spec.Agent,
+		Image:       s.Spec.Image,
+		RepoURL:     s.Spec.RepoURL,
+		Branch:      s.Spec.Branch,
+		Status:      string(s.Status),
+		CreatedAt:   s.CreatedAt,
+		Error:       s.Error,
+	}
+	if s.StoppedAt != nil {
+		r.StoppedAt = *s.StoppedAt
+	} else {
+		r.StoppedAt = time.Now()
+	}
+	m.mu.RUnlock()
+
+	if err := m.logStore.Save(r); err != nil {
+		log.Printf("warning: failed to save session record %s: %v", s.ID, err)
+	}
 }
 
 func generateID() (string, error) {
