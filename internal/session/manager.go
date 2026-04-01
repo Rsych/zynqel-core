@@ -507,11 +507,20 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 
 	// Hold write lock for check + creating guard to prevent TOCTOU race:
 	// no new session can start on oldID while the rename is in progress.
+	// Create() checks m.creating[spec.WorkspaceID] before proceeding,
+	// so setting m.creating[oldID] blocks concurrent session creation.
 	m.mu.Lock()
+	var stoppingSessions []*Session
 	for _, s := range m.sessions {
-		if s.Spec.WorkspaceID == oldID && s.Status == StatusRunning {
+		if s.Spec.WorkspaceID != oldID {
+			continue
+		}
+		if s.Status == StatusRunning {
 			m.mu.Unlock()
 			return fmt.Errorf("cannot rename workspace with active session")
+		}
+		if s.Status == StatusStopped {
+			stoppingSessions = append(stoppingSessions, s)
 		}
 	}
 	if _, ok := m.creating[oldID]; ok {
@@ -526,6 +535,12 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 		delete(m.creating, oldID)
 		m.mu.Unlock()
 	}()
+
+	// Wait for any mid-stop sessions to finish cleanup (commit + container stop)
+	// before copying the volume, to avoid racing with the container commit.
+	for _, s := range stoppingSessions {
+		waitStopDone(s)
+	}
 
 	// Check target volume doesn't already exist.
 	oldVolume := volumePrefix + oldID
