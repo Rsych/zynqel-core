@@ -562,6 +562,10 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 		}
 	}
 
+	// Log intent before starting multi-step operation so a future reconciliation
+	// tool can detect orphaned volumes from incomplete renames.
+	log.Printf("rename workspace: starting %s → %s (volume %s → %s)", oldID, newID, oldVolume, newVolume)
+
 	// Copy volume data.
 	// Crash recovery: if the process crashes after CopyVolume but before
 	// RemoveVolume, both volumes will exist. Recovery is manual:
