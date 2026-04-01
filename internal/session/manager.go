@@ -311,6 +311,8 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 	s.stopDone = make(chan struct{})
 
 	// Heavy cleanup in background — commit, then stop container.
+	// Note: broadcaster.Close() triggers readLoop exit, which closes the PTY logWriter
+	// via its defer chain (see readLoop in broadcaster.go).
 	go func() {
 		defer close(s.stopDone)
 		if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
@@ -379,9 +381,11 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	waitStopDone(s)
 
 	if s.Status == StatusStopped {
+		// Stop goroutine already saved the session record.
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
 	} else {
 		m.cleanupSession(ctx, s)
+		m.saveSessionRecord(s)
 	}
 	return nil
 }
@@ -607,9 +611,11 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	for _, s := range sessions {
 		waitStopDone(s)
 		if s.Status == StatusStopped {
+			// Stop goroutine already saved the session record.
 			_ = m.sandbox.Remove(ctx, s.ContainerID)
 		} else {
 			m.cleanupSession(ctx, s)
+			m.saveSessionRecord(s)
 		}
 		log.Printf("cleaned up session %s", s.ID)
 	}
@@ -617,6 +623,9 @@ func (m *Manager) Shutdown(ctx context.Context) {
 
 // cleanupSession stops the broadcaster and container.
 // Safe to call multiple times — guarded by atomic flag.
+// Does NOT save a session history record; callers that need persistence
+// should call saveSessionRecord separately (early-error cleanup during Create
+// passes incomplete sessions that shouldn't be recorded).
 func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if !atomic.CompareAndSwapInt32(&s.cleaned, 0, 1) {
 		_ = m.sandbox.Remove(ctx, s.ContainerID)
@@ -638,7 +647,6 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
 	}
-	m.saveSessionRecord(s)
 }
 
 // StartTimeoutChecker runs a background goroutine that terminates idle

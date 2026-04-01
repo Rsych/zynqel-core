@@ -31,11 +31,11 @@ export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
     setError(null);
 
     async function loadLog() {
-      const [logData, { Terminal }, { FitAddon }, _css] = await Promise.all([
+      const [logData, { Terminal }, { FitAddon }] = await Promise.all([
         api.getSessionLog(sessionId),
         import("@xterm/xterm"),
         import("@xterm/addon-fit"),
-        import("@xterm/xterm/css/xterm.css"),
+        import("@xterm/xterm/css/xterm.css"), // side-effect: loads xterm styles
       ]);
 
       if (!mounted || !containerRef.current) return;
