@@ -241,6 +241,8 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	}
 
 	// Open PTY log writer if session logging is enabled.
+	// Ownership transfers to the broadcaster's readLoop, which closes it on exit.
+	// Guard against leaks if anything fails before NewBroadcaster.
 	var logWriter io.WriteCloser
 	if m.logStore != nil && m.logStore.LogPTY() {
 		w, err := m.logStore.OpenLogWriter(id)
@@ -250,6 +252,12 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 			logWriter = w
 		}
 	}
+	defer func() {
+		// If we return before NewBroadcaster takes ownership, close the writer.
+		if logWriter != nil {
+			_ = logWriter.Close()
+		}
+	}()
 
 	s := &Session{
 		ID:          id,
@@ -260,6 +268,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 	}
 	s.TouchActivity()
 	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil, logWriter)
+	logWriter = nil // ownership transferred to broadcaster
 
 	m.mu.Lock()
 	m.sessions[id] = s
@@ -542,7 +551,9 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 	if m.sandbox.ImageExists(ctx, oldImage) {
 		if err := m.sandbox.TagImage(ctx, oldImage, newImage); err != nil {
 			// Rollback: remove the new volume.
-			_ = m.sandbox.RemoveVolume(ctx, newVolume)
+			if rmErr := m.sandbox.RemoveVolume(ctx, newVolume); rmErr != nil {
+				log.Printf("ERROR: rollback failed, orphaned volume %s must be removed manually: %v", newVolume, rmErr)
+			}
 			return fmt.Errorf("tag image: %w", err)
 		}
 		// Best-effort removal of old tag; new tag already exists.
