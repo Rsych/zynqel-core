@@ -1,6 +1,7 @@
 import type {
   Session,
   SessionSpec,
+  SessionRecord,
   ContainerStats,
   SystemInfo,
   Workspace,
@@ -69,8 +70,30 @@ export const api = {
 
   // Workspaces
   listWorkspaces: () => fetchJSON<Workspace[]>("/workspaces"),
+  renameWorkspace: (oldId: string, newId: string) =>
+    fetchJSON<{ id: string }>(`/workspaces/${oldId}`, {
+      method: "PUT",
+      body: JSON.stringify({ id: newId }),
+    }),
   deleteWorkspace: (id: string) =>
     fetchJSON<void>(`/workspaces/${id}`, { method: "DELETE" }),
+
+  // Session history
+  listSessionHistory: (params?: { workspace_id?: string }) => {
+    const qs = params?.workspace_id
+      ? `?workspace_id=${encodeURIComponent(params.workspace_id)}`
+      : "";
+    return fetchJSON<SessionRecord[]>(`/sessions/history${qs}`);
+  },
+  getSessionLog: async (id: string) => {
+    const res = await fetch(
+      `${API_BASE}/sessions/history/${id}/log`
+    );
+    if (!res.ok) return null;
+    return res.text();
+  },
+  deleteSessionHistory: (id: string) =>
+    fetchJSON<void>(`/sessions/history/${id}`, { method: "DELETE" }),
 
   // WebSocket URL for session stream
   streamURL: (sessionId: string) => {

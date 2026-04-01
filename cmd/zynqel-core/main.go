@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/server"
 	"github.com/Rsych/zynqel-core/internal/session"
+	"github.com/Rsych/zynqel-core/internal/sessionlog"
 )
 
 func main() {
@@ -64,7 +67,25 @@ func main() {
 		log.Printf("warning: failed to load agent configs: %v", err)
 	}
 
-	sm := session.NewManager(sb, rp, agentStore)
+	// Create session log store for persisting session history.
+	logPTY := strings.EqualFold(os.Getenv("ZYNQEL_LOG_PTY"), "true")
+	retentionDays := 30
+	if v := os.Getenv("ZYNQEL_LOG_RETENTION_DAYS"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil && d > 0 {
+			retentionDays = d
+		}
+	}
+	logStore, err := sessionlog.NewStore(dataDir, logPTY, retentionDays)
+	if err != nil {
+		log.Fatalf("failed to create session log store: %v", err)
+	}
+	if removed, err := logStore.Cleanup(); err != nil {
+		log.Printf("warning: session log cleanup: %v", err)
+	} else if removed > 0 {
+		log.Printf("session log cleanup: removed %d old record(s)", removed)
+	}
+
+	sm := session.NewManager(sb, rp, agentStore, logStore)
 
 	// Serve dashboard from web/out/ (Next.js static export).
 	var webFS fs.FS
@@ -72,7 +93,7 @@ func main() {
 		webFS = os.DirFS("web/out")
 		log.Println("serving dashboard from web/out/")
 	}
-	srv := server.New(sm, agentStore, sb, webFS)
+	srv := server.New(sm, agentStore, sb, logStore, webFS)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%s", port),

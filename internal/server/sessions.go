@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Rsych/zynqel-core/internal/session"
+	"github.com/Rsych/zynqel-core/internal/sessionlog"
 )
 
 // handleCreateSession decodes a SessionSpec from the request body
@@ -126,6 +129,38 @@ func (s *Server) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleRenameWorkspace renames a workspace volume and committed image.
+func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
+	oldID := r.PathValue("id")
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	if err := s.sessions.RenameWorkspace(r.Context(), oldID, body.ID); err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "active session"), strings.Contains(msg, "already exists"):
+			writeError(w, http.StatusConflict, msg)
+		case strings.Contains(msg, "invalid workspace_id"):
+			writeError(w, http.StatusBadRequest, msg)
+		default:
+			log.Printf("error renaming workspace %s → %s: %v", oldID, body.ID, err)
+			writeError(w, http.StatusInternalServerError, "failed to rename workspace")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"id": body.ID})
+}
+
 // handleSessionStats returns container CPU/memory stats.
 func (s *Server) handleSessionStats(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -150,6 +185,82 @@ func (s *Server) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 		"idle_timeout": p.IdleTimeoutSec,
 		"hard_timeout": p.HardTimeoutSec,
 	})
+}
+
+// handleListSessionHistory returns past session records.
+func (s *Server) handleListSessionHistory(w http.ResponseWriter, r *http.Request) {
+	if s.logStore == nil {
+		writeJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+	records, err := s.logStore.List()
+	if err != nil {
+		log.Printf("error listing session history: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to list session history")
+		return
+	}
+
+	// Filter by workspace_id if provided.
+	if wsID := r.URL.Query().Get("workspace_id"); wsID != "" {
+		var filtered []sessionlog.Record
+		for _, rec := range records {
+			if rec.WorkspaceID == wsID {
+				filtered = append(filtered, rec)
+			}
+		}
+		records = filtered
+	}
+
+	writeJSON(w, http.StatusOK, records)
+}
+
+// handleGetSessionHistory returns a single session record.
+func (s *Server) handleGetSessionHistory(w http.ResponseWriter, r *http.Request) {
+	if s.logStore == nil {
+		writeError(w, http.StatusNotFound, "session history not found")
+		return
+	}
+	id := r.PathValue("id")
+	rec, err := s.logStore.Get(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session history not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, rec)
+}
+
+// handleGetSessionLog streams a session's PTY log as plain text.
+func (s *Server) handleGetSessionLog(w http.ResponseWriter, r *http.Request) {
+	if s.logStore == nil {
+		writeError(w, http.StatusNotFound, "no log available")
+		return
+	}
+	id := r.PathValue("id")
+	rc, err := s.logStore.ReadLog(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no log available")
+		return
+	}
+	defer func() { _ = rc.Close() }()
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if _, err := io.Copy(w, rc); err != nil {
+		log.Printf("error streaming session log %s: %v", id, err)
+	}
+}
+
+// handleDeleteSessionHistory removes a session record and its log.
+func (s *Server) handleDeleteSessionHistory(w http.ResponseWriter, r *http.Request) {
+	if s.logStore == nil {
+		writeError(w, http.StatusNotFound, "session history not found")
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.logStore.Delete(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete session history")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // writeJSON is a helper to send JSON responses.

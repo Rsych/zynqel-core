@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"regexp"
@@ -18,6 +19,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/policy"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
+	"github.com/Rsych/zynqel-core/internal/sessionlog"
 	"github.com/Rsych/zynqel-core/internal/shortid"
 )
 
@@ -54,17 +56,19 @@ type Manager struct {
 	sandbox     sandbox.Sandbox
 	policy      policy.ResourcePolicy
 	agents      *agentcfg.Store
+	logStore    *sessionlog.Store
 	idleTimeout time.Duration
 	hardTimeout time.Duration
 }
 
-func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy, agents *agentcfg.Store) *Manager {
+func NewManager(sb sandbox.Sandbox, p policy.ResourcePolicy, agents *agentcfg.Store, logStore *sessionlog.Store) *Manager {
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		creating:    make(map[string]struct{}),
 		sandbox:     sb,
 		policy:      p,
 		agents:      agents,
+		logStore:    logStore,
 		idleTimeout: time.Duration(p.IdleTimeoutSec) * time.Second,
 		hardTimeout: time.Duration(p.HardTimeoutSec) * time.Second,
 	}
@@ -236,6 +240,17 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		return nil, fmt.Errorf("attach for broadcast: %w", err)
 	}
 
+	// Open PTY log writer if session logging is enabled.
+	var logWriter io.WriteCloser
+	if m.logStore != nil && m.logStore.LogPTY() {
+		w, err := m.logStore.OpenLogWriter(id)
+		if err != nil {
+			log.Printf("warning: failed to open PTY log for session %s: %v", id, err)
+		} else {
+			logWriter = w
+		}
+	}
+
 	s := &Session{
 		ID:          id,
 		Spec:        spec,
@@ -244,7 +259,7 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		CreatedAt:   time.Now(),
 	}
 	s.TouchActivity()
-	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil)
+	s.broadcaster = NewBroadcaster(broadcastConn, DefaultBufferSize, s.TouchActivity, nil, logWriter)
 
 	m.mu.Lock()
 	m.sessions[id] = s
@@ -316,6 +331,7 @@ func (m *Manager) Stop(_ context.Context, id string) error {
 		if err := m.sandbox.Stop(ctx, s.ContainerID); err != nil {
 			log.Printf("warning: failed to stop container %s: %v", shortid.Format(s.ContainerID), err)
 		}
+		m.saveSessionRecord(s)
 		log.Printf("session %s stopped", s.ID)
 	}()
 
@@ -464,6 +480,77 @@ func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
 	return m.sandbox.RemoveVolume(ctx, volumePrefix+wsID)
 }
 
+// RenameWorkspace renames a workspace by copying its volume and committed image.
+// Returns an error if the workspace has a running session or the new ID already exists.
+func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) error {
+	newID = strings.ToLower(newID)
+	if !validWorkspaceID.MatchString(newID) {
+		return fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", newID)
+	}
+	if oldID == newID {
+		return nil
+	}
+
+	// Check for running sessions and existing target under lock.
+	m.mu.RLock()
+	for _, s := range m.sessions {
+		if s.Spec.WorkspaceID == oldID && s.Status == StatusRunning {
+			m.mu.RUnlock()
+			return fmt.Errorf("cannot rename workspace with active session")
+		}
+	}
+	m.mu.RUnlock()
+
+	// Check target volume doesn't already exist.
+	oldVolume := volumePrefix + oldID
+	newVolume := volumePrefix + newID
+	vols, err := m.sandbox.ListVolumes(ctx, newVolume)
+	if err != nil {
+		return fmt.Errorf("check target volume: %w", err)
+	}
+	for _, v := range vols {
+		if v.Name == newVolume {
+			return fmt.Errorf("workspace %q already exists", newID)
+		}
+	}
+
+	// Copy volume data.
+	if err := m.sandbox.CopyVolume(ctx, oldVolume, newVolume); err != nil {
+		return fmt.Errorf("copy volume: %w", err)
+	}
+
+	// Rename committed image if it exists.
+	oldImage := oldVolume + ":latest"
+	newImage := newVolume + ":latest"
+	if m.sandbox.ImageExists(ctx, oldImage) {
+		if err := m.sandbox.TagImage(ctx, oldImage, newImage); err != nil {
+			// Rollback: remove the new volume.
+			_ = m.sandbox.RemoveVolume(ctx, newVolume)
+			return fmt.Errorf("tag image: %w", err)
+		}
+		if err := m.sandbox.RemoveImage(ctx, oldImage); err != nil {
+			log.Printf("warning: failed to remove old image %s: %v", oldImage, err)
+		}
+	}
+
+	// Remove old volume.
+	if err := m.sandbox.RemoveVolume(ctx, oldVolume); err != nil {
+		log.Printf("warning: failed to remove old volume %s: %v", oldVolume, err)
+	}
+
+	// Update any stopped sessions referencing the old workspace ID.
+	m.mu.Lock()
+	for _, s := range m.sessions {
+		if s.Spec.WorkspaceID == oldID {
+			s.Spec.WorkspaceID = newID
+		}
+	}
+	m.mu.Unlock()
+
+	log.Printf("renamed workspace %s → %s", oldID, newID)
+	return nil
+}
+
 // Stats returns container resource usage for a session.
 func (m *Manager) Stats(ctx context.Context, id string) (*sandbox.ContainerStats, error) {
 	m.mu.RLock()
@@ -537,6 +624,7 @@ func (m *Manager) cleanupSession(ctx context.Context, s *Session) {
 	if err := m.sandbox.Remove(ctx, s.ContainerID); err != nil {
 		log.Printf("warning: failed to remove container %s: %v", shortid.Format(s.ContainerID), err)
 	}
+	m.saveSessionRecord(s)
 }
 
 // StartTimeoutChecker runs a background goroutine that terminates idle
@@ -681,6 +769,34 @@ func (m *Manager) setupGitCredentials(ctx context.Context, containerID string, s
 	}
 
 	return nil
+}
+
+// saveSessionRecord persists session metadata to the log store.
+func (m *Manager) saveSessionRecord(s *Session) {
+	if m.logStore == nil {
+		return
+	}
+	r := sessionlog.Record{
+		ID:          s.ID,
+		WorkspaceID: s.Spec.WorkspaceID,
+		Agent:       s.Spec.Agent,
+		Image:       s.Spec.Image,
+		RepoURL:     s.Spec.RepoURL,
+		Branch:      s.Spec.Branch,
+		Status:      string(s.Status),
+		CreatedAt:   s.CreatedAt,
+	}
+	if s.StoppedAt != nil {
+		r.StoppedAt = *s.StoppedAt
+	} else {
+		r.StoppedAt = time.Now()
+	}
+	if s.Error != "" {
+		r.Error = s.Error
+	}
+	if err := m.logStore.Save(r); err != nil {
+		log.Printf("warning: failed to save session record %s: %v", s.ID, err)
+	}
 }
 
 func generateID() (string, error) {

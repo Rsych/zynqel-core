@@ -37,8 +37,9 @@ type Broadcaster struct {
 	conn        sandbox.PTYConn
 	ring        *pty.RingBuffer
 	intercepter *intercept.Intercepter
-	onActivity  func() // called on PTY read/write activity
-	onExit      func() // called when PTY read loop ends (agent exited)
+	onActivity  func()         // called on PTY read/write activity
+	onExit      func()         // called when PTY read loop ends (agent exited)
+	logWriter   io.WriteCloser // optional: writes PTY output to a log file
 	mu          sync.Mutex
 	subs        map[*Subscriber]struct{}
 	stopped     chan struct{}
@@ -48,13 +49,15 @@ type Broadcaster struct {
 // NewBroadcaster creates a Broadcaster and starts reading from conn.
 // bufSize is the ring buffer size in bytes (0 = default 64KB).
 // onActivity is called on every PTY read/write (for idle tracking). May be nil.
-func NewBroadcaster(conn sandbox.PTYConn, bufSize int, onActivity func(), onExit func()) *Broadcaster {
+// logWriter, if non-nil, receives a copy of all PTY output for persistent logging.
+func NewBroadcaster(conn sandbox.PTYConn, bufSize int, onActivity func(), onExit func(), logWriter io.WriteCloser) *Broadcaster {
 	b := &Broadcaster{
 		conn:        conn,
 		ring:        pty.NewRingBuffer(bufSize),
 		intercepter: intercept.New(),
 		onActivity:  onActivity,
 		onExit:      onExit,
+		logWriter:   logWriter,
 		subs:        make(map[*Subscriber]struct{}),
 		stopped:     make(chan struct{}),
 	}
@@ -117,6 +120,9 @@ func (b *Broadcaster) readLoop() {
 	defer close(b.stopped)
 	defer b.closeAllSubscribers()
 	defer func() {
+		if b.logWriter != nil {
+			_ = b.logWriter.Close()
+		}
 		if b.onExit != nil {
 			b.onExit()
 		}
@@ -132,6 +138,13 @@ func (b *Broadcaster) readLoop() {
 
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
+
+			// Write to persistent log if enabled.
+			if b.logWriter != nil {
+				if _, werr := b.logWriter.Write(chunk); werr != nil {
+					log.Printf("warning: PTY log write error: %v", werr)
+				}
+			}
 
 			// Scan for prompts before fan-out.
 			prompts := b.intercepter.Scan(chunk)

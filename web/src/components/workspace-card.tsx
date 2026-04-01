@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical, ExternalLink, Square, Trash2, Play } from "lucide-react";
+import { MoreVertical, ExternalLink, Square, Trash2, Play, Pencil } from "lucide-react";
 import type { Session } from "@/lib/types";
 
 const statusConfig: Record<
@@ -39,9 +39,10 @@ interface WorkspaceCardProps {
   onStop: (id: string) => void;
   onRestart: (id: string) => void;
   onDelete: (id: string) => void;
+  onRename?: (workspaceId: string) => void;
 }
 
-export function WorkspaceCard({ session, onStop, onRestart, onDelete }: WorkspaceCardProps) {
+export function WorkspaceCard({ session, onStop, onRestart, onDelete, onRename }: WorkspaceCardProps) {
   const status = statusConfig[session.status] || statusConfig.stopped;
   const isRunning = session.status === "running";
   const isStopped = session.status === "stopped";
@@ -115,6 +116,12 @@ export function WorkspaceCard({ session, onStop, onRestart, onDelete }: Workspac
                   <DropdownMenuItem onClick={() => onStop(session.id)}>
                     <Square className="h-4 w-4 mr-2" />
                     Stop
+                  </DropdownMenuItem>
+                )}
+                {isStopped && onRename && session.spec.workspace_id && (
+                  <DropdownMenuItem onClick={() => onRename(session.spec.workspace_id!)}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Rename
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

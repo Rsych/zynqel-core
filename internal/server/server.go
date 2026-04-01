@@ -8,6 +8,7 @@ import (
 	"github.com/Rsych/zynqel-core/internal/agentcfg"
 	"github.com/Rsych/zynqel-core/internal/sandbox"
 	"github.com/Rsych/zynqel-core/internal/session"
+	"github.com/Rsych/zynqel-core/internal/sessionlog"
 )
 
 type Server struct {
@@ -15,16 +16,18 @@ type Server struct {
 	sessions *session.Manager
 	agents   *agentcfg.Store
 	sandbox  sandbox.Sandbox
+	logStore *sessionlog.Store
 }
 
-// New takes a session.Manager, agent config store, sandbox, and a filesystem for static web assets.
+// New takes a session.Manager, agent config store, sandbox, log store, and a filesystem for static web assets.
 // Pass nil for webFS to disable the dashboard.
-func New(sm *session.Manager, agents *agentcfg.Store, sb sandbox.Sandbox, webFS fs.FS) *Server {
+func New(sm *session.Manager, agents *agentcfg.Store, sb sandbox.Sandbox, logStore *sessionlog.Store, webFS fs.FS) *Server {
 	s := &Server{
 		router:   http.NewServeMux(),
 		sessions: sm,
 		agents:   agents,
 		sandbox:  sb,
+		logStore: logStore,
 	}
 	s.routes(webFS)
 	return s
@@ -45,7 +48,12 @@ func (s *Server) routes(webFS fs.FS) {
 	s.router.HandleFunc("PUT /agents/{name}", s.handleUpdateAgent)
 	s.router.HandleFunc("DELETE /agents/{name}", s.handleDeleteAgent)
 	s.router.HandleFunc("GET /system/info", s.handleSystemInfo)
+	s.router.HandleFunc("GET /sessions/history", s.handleListSessionHistory)
+	s.router.HandleFunc("GET /sessions/history/{id}", s.handleGetSessionHistory)
+	s.router.HandleFunc("GET /sessions/history/{id}/log", s.handleGetSessionLog)
+	s.router.HandleFunc("DELETE /sessions/history/{id}", s.handleDeleteSessionHistory)
 	s.router.HandleFunc("GET /workspaces", s.handleListWorkspaces)
+	s.router.HandleFunc("PUT /workspaces/{id}", s.handleRenameWorkspace)
 	s.router.HandleFunc("DELETE /workspaces/{id}", s.handleDeleteWorkspace)
 
 	if webFS != nil {

@@ -28,6 +28,9 @@ type Sandbox interface {
 	BuildImage(ctx context.Context, dockerfile, imageName string) error
 	ListVolumes(ctx context.Context, prefix string) ([]VolumeInfo, error)
 	RemoveVolume(ctx context.Context, name string) error
+	CopyVolume(ctx context.Context, srcName, dstName string) error
+	TagImage(ctx context.Context, oldName, newName string) error
+	RemoveImage(ctx context.Context, imageName string) error
 }
 
 // ContainerStats holds point-in-time resource usage for a container.

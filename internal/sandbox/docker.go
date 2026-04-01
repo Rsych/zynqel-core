@@ -379,6 +379,79 @@ func (d *DockerSandbox) RemoveVolume(ctx context.Context, name string) error {
 	return d.cli.VolumeRemove(ctx, name, true)
 }
 
+// CopyVolume copies all data from one Docker volume to a new volume.
+// Docker doesn't support native volume rename, so we create a new volume,
+// run a temporary container to copy data, then the caller removes the old volume.
+func (d *DockerSandbox) CopyVolume(ctx context.Context, srcName, dstName string) error {
+	// Create the destination volume.
+	if _, err := d.cli.VolumeCreate(ctx, volume.CreateOptions{Name: dstName}); err != nil {
+		return fmt.Errorf("create volume %s: %w", dstName, err)
+	}
+
+	// Run a temporary container to copy data between volumes.
+	config := &container.Config{
+		Image: "alpine:latest",
+		Cmd:   []string{"cp", "-a", "/src/.", "/dst/"},
+	}
+	hostConfig := &container.HostConfig{
+		Mounts: []mount.Mount{
+			{Type: mount.TypeVolume, Source: srcName, Target: "/src", ReadOnly: true},
+			{Type: mount.TypeVolume, Source: dstName, Target: "/dst"},
+		},
+	}
+
+	if err := d.ensureImage(ctx, "alpine:latest"); err != nil {
+		_ = d.cli.VolumeRemove(ctx, dstName, true)
+		return fmt.Errorf("ensure alpine image: %w", err)
+	}
+
+	resp, err := d.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
+	if err != nil {
+		_ = d.cli.VolumeRemove(ctx, dstName, true)
+		return fmt.Errorf("create copy container: %w", err)
+	}
+	defer func() { _ = d.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}) }()
+
+	if err := d.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		_ = d.cli.VolumeRemove(ctx, dstName, true)
+		return fmt.Errorf("start copy container: %w", err)
+	}
+
+	statusCh, errCh := d.cli.ContainerWait(ctx, resp.ID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			_ = d.cli.VolumeRemove(ctx, dstName, true)
+			return fmt.Errorf("wait copy container: %w", err)
+		}
+	case status := <-statusCh:
+		if status.StatusCode != 0 {
+			_ = d.cli.VolumeRemove(ctx, dstName, true)
+			return fmt.Errorf("copy container exited with code %d", status.StatusCode)
+		}
+	}
+
+	log.Printf("copied volume %s → %s", srcName, dstName)
+	return nil
+}
+
+// TagImage tags a Docker image with a new name.
+func (d *DockerSandbox) TagImage(ctx context.Context, oldName, newName string) error {
+	if err := d.cli.ImageTag(ctx, oldName, newName); err != nil {
+		return fmt.Errorf("tag image %s → %s: %w", oldName, newName, err)
+	}
+	return nil
+}
+
+// RemoveImage removes a Docker image by name.
+func (d *DockerSandbox) RemoveImage(ctx context.Context, imageName string) error {
+	_, err := d.cli.ImageRemove(ctx, imageName, image.RemoveOptions{})
+	if err != nil {
+		return fmt.Errorf("remove image %s: %w", imageName, err)
+	}
+	return nil
+}
+
 // Resize changes the TTY dimensions of a running container.
 func (d *DockerSandbox) Resize(ctx context.Context, id string, cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
