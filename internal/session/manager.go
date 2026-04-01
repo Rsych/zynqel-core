@@ -253,7 +253,8 @@ func (m *Manager) Create(ctx context.Context, spec SessionSpec) (*Session, error
 		}
 	}
 	defer func() {
-		// If we return before NewBroadcaster takes ownership, close the writer.
+		// Safety net: if we return before NewBroadcaster takes ownership, close the writer.
+		// The logWriter = nil after NewBroadcaster (below) is critical to prevent double-close.
 		if logWriter != nil {
 			_ = logWriter.Close()
 		}
@@ -562,11 +563,20 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 	}
 
 	// Copy volume data.
+	// Crash recovery: if the process crashes after CopyVolume but before
+	// RemoveVolume, both volumes will exist. Recovery is manual:
+	//   docker volume rm zynqel-ws-<newID>   (if rename should be retried)
+	//   docker volume rm zynqel-ws-<oldID>   (if rename should be completed)
+	// A future reconciliation pass could detect duplicate volumes by checking
+	// for pairs where one is a prefix-match of a recent rename log entry.
 	if err := m.sandbox.CopyVolume(ctx, oldVolume, newVolume); err != nil {
 		return fmt.Errorf("copy volume: %w", err)
 	}
 
 	// Rename committed image if it exists.
+	// Note: if old image removal fails, the stale tag persists. A subsequent
+	// rename back to the old ID could find this stale image — operators should
+	// run `docker image prune` periodically to clean up dangling tags.
 	oldImage := oldVolume + ":latest"
 	newImage := newVolume + ":latest"
 	if m.sandbox.ImageExists(ctx, oldImage) {
