@@ -40,6 +40,7 @@ export function RenameDialog({
 
   const validate = (value: string) => {
     if (!value) return "Name is required";
+    if (value.length > 128) return "Name must be 128 characters or less";
     if (!VALID_WORKSPACE_ID.test(value))
       return "Must be lowercase alphanumeric, hyphens, or underscores";
     if (value === currentName) return "Name is unchanged";

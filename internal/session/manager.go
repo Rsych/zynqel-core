@@ -482,6 +482,7 @@ func (m *Manager) DeleteWorkspace(ctx context.Context, wsID string) error {
 
 // RenameWorkspace renames a workspace by copying its volume and committed image.
 // Returns an error if the workspace has a running session or the new ID already exists.
+// Uses the creating guard to prevent new sessions from starting on the workspace during rename.
 func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) error {
 	newID = strings.ToLower(newID)
 	if !validWorkspaceID.MatchString(newID) {
@@ -491,15 +492,27 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 		return nil
 	}
 
-	// Check for running sessions and existing target under lock.
-	m.mu.RLock()
+	// Hold write lock for check + creating guard to prevent TOCTOU race:
+	// no new session can start on oldID while the rename is in progress.
+	m.mu.Lock()
 	for _, s := range m.sessions {
 		if s.Spec.WorkspaceID == oldID && s.Status == StatusRunning {
-			m.mu.RUnlock()
+			m.mu.Unlock()
 			return fmt.Errorf("cannot rename workspace with active session")
 		}
 	}
-	m.mu.RUnlock()
+	if _, ok := m.creating[oldID]; ok {
+		m.mu.Unlock()
+		return fmt.Errorf("workspace %s is currently being created", oldID)
+	}
+	m.creating[oldID] = struct{}{}
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		delete(m.creating, oldID)
+		m.mu.Unlock()
+	}()
 
 	// Check target volume doesn't already exist.
 	oldVolume := volumePrefix + oldID
@@ -528,8 +541,9 @@ func (m *Manager) RenameWorkspace(ctx context.Context, oldID, newID string) erro
 			_ = m.sandbox.RemoveVolume(ctx, newVolume)
 			return fmt.Errorf("tag image: %w", err)
 		}
+		// Best-effort removal of old tag; new tag already exists.
 		if err := m.sandbox.RemoveImage(ctx, oldImage); err != nil {
-			log.Printf("warning: failed to remove old image %s: %v", oldImage, err)
+			log.Printf("warning: failed to remove old image tag %s (new tag exists): %v", oldImage, err)
 		}
 	}
 

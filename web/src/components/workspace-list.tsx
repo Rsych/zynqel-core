@@ -133,7 +133,7 @@ export function WorkspaceList({
     try {
       await api.renameWorkspace(oldId, newId);
       setRenameTarget(null);
-      fetchData();
+      await fetchData();
       toast.success("Workspace renamed", { id: "rename" });
     } catch (err) {
       toast.error(

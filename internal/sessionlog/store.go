@@ -7,10 +7,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+// validID matches safe session IDs (hex strings or alphanumeric with hyphens/underscores).
+var validID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // Record represents a completed session's metadata persisted to disk.
 type Record struct {
@@ -60,8 +64,20 @@ func NewStore(dataDir string, logPTY bool, retentionDays int) (*Store, error) {
 // LogPTY returns whether PTY logging is enabled.
 func (s *Store) LogPTY() bool { return s.logPTY }
 
+// validateID checks that an ID is safe for use in file paths.
+func validateID(id string) error {
+	if !validID.MatchString(id) {
+		return fmt.Errorf("invalid session id %q", id)
+	}
+	return nil
+}
+
 // Save writes a session record to disk.
 func (s *Store) Save(r Record) error {
+	if err := validateID(r.ID); err != nil {
+		return err
+	}
+
 	// Compute duration if we have both timestamps.
 	if !r.StoppedAt.IsZero() && !r.CreatedAt.IsZero() {
 		r.Duration = r.StoppedAt.Sub(r.CreatedAt).Truncate(time.Second).String()
@@ -109,6 +125,9 @@ func (s *Store) List() ([]Record, error) {
 
 // Get returns a single session record by ID.
 func (s *Store) Get(id string) (*Record, error) {
+	if err := validateID(id); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(s.dir, id+".json")
 	r, err := s.readRecord(path)
 	if err != nil {
@@ -119,6 +138,9 @@ func (s *Store) Get(id string) (*Record, error) {
 
 // Delete removes a session record and its log file.
 func (s *Store) Delete(id string) error {
+	if err := validateID(id); err != nil {
+		return err
+	}
 	_ = os.Remove(filepath.Join(s.dir, id+".json"))
 	_ = os.Remove(filepath.Join(s.logDir, id+".log"))
 	return nil
@@ -127,6 +149,9 @@ func (s *Store) Delete(id string) error {
 // OpenLogWriter opens a log file for writing PTY output.
 // The caller is responsible for closing the writer.
 func (s *Store) OpenLogWriter(id string) (io.WriteCloser, error) {
+	if err := validateID(id); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(s.logDir, id+".log")
 	f, err := os.Create(path)
 	if err != nil {
@@ -138,6 +163,9 @@ func (s *Store) OpenLogWriter(id string) (io.WriteCloser, error) {
 // ReadLog opens a session's PTY log file for reading.
 // Returns os.ErrNotExist if no log exists.
 func (s *Store) ReadLog(id string) (io.ReadCloser, error) {
+	if err := validateID(id); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(s.logDir, id+".log")
 	f, err := os.Open(path)
 	if err != nil {

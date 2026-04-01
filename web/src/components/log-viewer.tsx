@@ -19,18 +19,23 @@ interface LogViewerProps {
 export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
+  const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !sessionId) return;
 
     let mounted = true;
     setLoading(true);
+    setError(null);
 
     async function loadLog() {
-      const [logData, { Terminal }] = await Promise.all([
+      const [logData, { Terminal }, { FitAddon }, _css] = await Promise.all([
         api.getSessionLog(sessionId),
         import("@xterm/xterm"),
+        import("@xterm/addon-fit"),
+        import("@xterm/xterm/css/xterm.css"),
       ]);
 
       if (!mounted || !containerRef.current) return;
@@ -39,6 +44,9 @@ export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
       if (termRef.current) {
         termRef.current.dispose();
       }
+
+      const fitAddon = new FitAddon();
+      fitRef.current = fitAddon;
 
       const term = new Terminal({
         fontSize: 13,
@@ -54,8 +62,10 @@ export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
         scrollback: 50000,
         convertEol: true,
       });
+      term.loadAddon(fitAddon);
       termRef.current = term;
       term.open(containerRef.current);
+      fitAddon.fit();
 
       if (logData) {
         term.write(logData);
@@ -66,7 +76,13 @@ export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
       setLoading(false);
     }
 
-    loadLog().catch(() => setLoading(false));
+    loadLog().catch((err) => {
+      if (mounted) {
+        setError("Failed to load session log");
+        setLoading(false);
+        console.error("Log viewer error:", err);
+      }
+    });
 
     return () => {
       mounted = false;
@@ -74,8 +90,21 @@ export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
         termRef.current.dispose();
         termRef.current = null;
       }
+      fitRef.current = null;
     };
   }, [open, sessionId]);
+
+  // Re-fit terminal when dialog resizes.
+  useEffect(() => {
+    if (!open) return;
+    const observer = new ResizeObserver(() => {
+      fitRef.current?.fit();
+    });
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+    return () => observer.disconnect();
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -89,6 +118,11 @@ export function LogViewer({ open, onOpenChange, sessionId }: LogViewerProps) {
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 text-sm text-muted-foreground">
+              {error}
             </div>
           )}
           <div ref={containerRef} className="h-full w-full" />
