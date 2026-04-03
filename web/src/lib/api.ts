@@ -83,17 +83,17 @@ export const api = {
     const qs = params?.workspace_id
       ? `?workspace_id=${encodeURIComponent(params.workspace_id)}`
       : "";
-    return fetchJSON<SessionRecord[]>(`/sessions/history${qs}`);
+    return fetchJSON<SessionRecord[]>(`/session-history${qs}`);
   },
   getSessionLog: async (id: string) => {
     const res = await fetch(
-      `${API_BASE}/sessions/history/${id}/log`
+      `${API_BASE}/session-history/${id}/log`
     );
     if (!res.ok) return null;
     return res.text();
   },
   deleteSessionHistory: (id: string) =>
-    fetchJSON<void>(`/sessions/history/${id}`, { method: "DELETE" }),
+    fetchJSON<void>(`/session-history/${id}`, { method: "DELETE" }),
 
   // WebSocket URL for session stream
   streamURL: (sessionId: string) => {
