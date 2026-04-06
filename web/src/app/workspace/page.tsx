@@ -48,6 +48,11 @@ function WorkspaceDetail() {
   const [restarting, setRestarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const terminalRef = useRef<TerminalViewHandle>(null);
+  const deletingRef = useRef(false);
+
+  useEffect(() => {
+    deletingRef.current = deleting;
+  }, [deleting]);
 
   useEffect(() => {
     if (!id) {
@@ -73,17 +78,22 @@ function WorkspaceDetail() {
     // Poll session status to detect stop/error from outside (agent exit, timeout).
     const POLL_INTERVAL = 5000;
     const interval = setInterval(() => {
-      if (deleting) return;
-      api.getSession(id).then(setSession).catch((err) => {
-        // 404 after delete/restart is expected; avoid noisy dev-console errors.
-        if (active) setSession(null);
-      });
+      if (deletingRef.current) return;
+      api
+        .getSession(id)
+        .then((s) => {
+          if (active) setSession(s);
+        })
+        .catch(() => {
+          // 404 after delete/restart is expected; avoid noisy dev-console errors.
+          if (active) setSession(null);
+        });
     }, POLL_INTERVAL);
     return () => {
       active = false;
       clearInterval(interval);
     };
-  }, [id, deleting]);
+  }, [id]);
 
   useEffect(() => {
     const name = session?.spec.workspace_id || session?.id?.slice(0, 8);
@@ -127,8 +137,9 @@ function WorkspaceDetail() {
       toast.success("Workspace removed", { id: "delete" });
       router.push("/");
     } catch (err) {
-      setDeleting(false);
       toast.error("Failed to remove workspace", { id: "delete" });
+    } finally {
+      setDeleting(false);
     }
   };
 
