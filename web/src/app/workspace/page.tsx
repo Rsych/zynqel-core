@@ -95,9 +95,7 @@ function WorkspaceDetail() {
             if (active) setSession(null);
             return;
           }
-          if (!isAPIError(err) || err.status !== 404) {
-            console.warn("Failed to poll session:", err);
-          }
+          console.warn("Failed to poll session:", err);
         });
     }, POLL_INTERVAL);
     return () => {
@@ -159,8 +157,8 @@ function WorkspaceDetail() {
     } finally {
       if (mountedRef.current) {
         setDeleting(false);
+        deletingRef.current = false;
       }
-      deletingRef.current = false;
     }
   };
 
