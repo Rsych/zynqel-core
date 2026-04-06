@@ -49,6 +49,13 @@ function WorkspaceDetail() {
   const [deleting, setDeleting] = useState(false);
   const terminalRef = useRef<TerminalViewHandle>(null);
   const deletingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!id) {
@@ -84,10 +91,13 @@ function WorkspaceDetail() {
         })
         .catch((err: unknown) => {
           // 404 after delete/restart is expected; avoid noisy dev-console errors.
+          if (isAPIError(err) && err.status === 404) {
+            if (active) setSession(null);
+            return;
+          }
           if (!isAPIError(err) || err.status !== 404) {
             console.warn("Failed to poll session:", err);
           }
-          if (active) setSession(null);
         });
     }, POLL_INTERVAL);
     return () => {
@@ -147,7 +157,9 @@ function WorkspaceDetail() {
       }
       toast.error("Failed to remove workspace", { id: "delete" });
     } finally {
-      setDeleting(false);
+      if (mountedRef.current) {
+        setDeleting(false);
+      }
       deletingRef.current = false;
     }
   };
