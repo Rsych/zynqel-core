@@ -51,10 +51,6 @@ function WorkspaceDetail() {
   const deletingRef = useRef(false);
 
   useEffect(() => {
-    deletingRef.current = deleting;
-  }, [deleting]);
-
-  useEffect(() => {
     if (!id) {
       setLoading(false);
       return;
@@ -84,8 +80,12 @@ function WorkspaceDetail() {
         .then((s) => {
           if (active) setSession(s);
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           // 404 after delete/restart is expected; avoid noisy dev-console errors.
+          const message = err instanceof Error ? err.message : String(err);
+          if (message !== "session not found") {
+            console.warn("Failed to poll session:", err);
+          }
           if (active) setSession(null);
         });
     }, POLL_INTERVAL);
@@ -131,6 +131,7 @@ function WorkspaceDetail() {
   const handleDelete = async () => {
     if (!id) return;
     setDeleting(true);
+    deletingRef.current = true;
     toast.loading("Removing workspace...", { id: "delete" });
     try {
       await api.deleteSession(id);
@@ -140,6 +141,7 @@ function WorkspaceDetail() {
       toast.error("Failed to remove workspace", { id: "delete" });
     } finally {
       setDeleting(false);
+      deletingRef.current = false;
     }
   };
 
@@ -358,6 +360,7 @@ function WorkspaceDetail() {
         title="Remove workspace?"
         description="This will stop the session and remove the container. Workspace data on the volume is preserved, but the container and any uncommitted state will be lost."
         confirmLabel="Remove"
+        confirmDisabled={deleting}
         variant="destructive"
         onConfirm={handleDelete}
       />
