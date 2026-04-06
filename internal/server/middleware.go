@@ -33,13 +33,11 @@ func RequestLog(next http.Handler) http.Handler {
 		metrics := httpsnoop.CaptureMetrics(next, w, r)
 
 		duration := time.Since(start)
-		requestID, _ := r.Context().Value(requestIDKey{}).(string)
 		logger.FromContext(r.Context()).Info("http request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", metrics.Code,
 			"duration_ms", duration.Milliseconds(),
-			"request_id", requestID,
 		)
 	})
 }

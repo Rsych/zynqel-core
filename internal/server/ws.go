@@ -6,6 +6,7 @@ import (
 	log "github.com/Rsych/zynqel-core/internal/logger"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/Rsych/zynqel-core/internal/session"
 	"github.com/gorilla/websocket"
@@ -19,6 +20,8 @@ var upgrader = websocket.Upgrader{
 		return true
 	},
 }
+
+const wsReadTimeout = 5 * time.Minute
 
 // wsMessage is the envelope for all WebSocket messages.
 //
@@ -63,6 +66,10 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = conn.Close() }()
 	conn.SetReadLimit(32 << 10) // 32KB per incoming frame/message
+	_ = conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	})
 
 	// Subscribe to the session's output broadcaster.
 	replay, sub, err := s.sessions.Subscribe(id)
@@ -108,6 +115,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 
 	// Input loop: WebSocket → PTY.
 	for {
+		_ = conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {

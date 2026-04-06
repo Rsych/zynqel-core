@@ -27,6 +27,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !isKnownAgent(spec.Agent, s.agents) {
+		writeError(w, http.StatusBadRequest, "unsupported agent")
+		return
+	}
 
 	// Use a long timeout — git clone + image pull can take minutes.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -277,4 +281,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // writeError sends a JSON error response.
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func isKnownAgent(name string, store interface{ IsCustom(string) bool }) bool {
+	switch name {
+	case "shell", "claude":
+		return true
+	default:
+		return store != nil && store.IsCustom(name)
+	}
 }

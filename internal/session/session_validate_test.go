@@ -1,6 +1,9 @@
 package session
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSessionSpecValidate(t *testing.T) {
 	t.Parallel()
@@ -27,6 +30,14 @@ func TestSessionSpecValidate(t *testing.T) {
 			spec: SessionSpec{
 				Agent:   "claude",
 				RepoURL: "git@github.com:Rsych/zynqel-core.git",
+			},
+		},
+		{
+			name: "valid repo with empty branch",
+			spec: SessionSpec{
+				Agent:   "shell",
+				RepoURL: "https://github.com/Rsych/zynqel-core.git",
+				Branch:  "",
 			},
 		},
 		{
@@ -67,6 +78,22 @@ func TestSessionSpecValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "invalid branch hash",
+			spec: SessionSpec{
+				Agent:  "shell",
+				Branch: "feature/#1",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid branch unicode",
+			spec: SessionSpec{
+				Agent:  "shell",
+				Branch: "기능/테스트",
+			},
+			wantErr: true,
+		},
+		{
 			name: "invalid image reference",
 			spec: SessionSpec{
 				Agent: "shell",
@@ -75,10 +102,36 @@ func TestSessionSpecValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "invalid image too long",
+			spec: SessionSpec{
+				Agent: "shell",
+				Image: strings.Repeat("a", 256),
+			},
+			wantErr: true,
+		},
+		{
 			name: "invalid workspace id",
 			spec: SessionSpec{
 				Agent:       "shell",
 				WorkspaceID: "Bad-ID",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid scp repo with dotdot path",
+			spec: SessionSpec{
+				Agent:   "shell",
+				RepoURL: "git@github.com:../../etc/passwd",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid env key",
+			spec: SessionSpec{
+				Agent: "shell",
+				Env: map[string]string{
+					"BAD-KEY": "x",
+				},
 			},
 			wantErr: true,
 		},

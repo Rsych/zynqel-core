@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -60,10 +61,7 @@ func (m *mockSandbox) ExecRun(_ context.Context, containerID string, cmd []strin
 	defer m.mu.Unlock()
 	m.execRunCall = append(m.execRunCall, execCall{containerID: containerID, cmd: append([]string(nil), cmd...)})
 	if len(cmd) >= 3 && cmd[0] == "sh" && cmd[1] == "-c" {
-		if cmd[2] == "pgrep -f '/usr/local/bin/claude' > /dev/null 2>&1 && echo running || echo exited" {
-			return []byte("exited\n"), nil
-		}
-		if cmd[2] == "pgrep -f 'my-agent' > /dev/null 2>&1 && echo running || echo exited" {
+		if strings.HasPrefix(cmd[2], "pgrep -f ") && (strings.Contains(cmd[2], "/usr/local/bin/claude") || strings.Contains(cmd[2], "my-agent")) {
 			return []byte("exited\n"), nil
 		}
 	}

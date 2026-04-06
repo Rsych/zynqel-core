@@ -70,6 +70,10 @@ func TestCreateSessionRejectsInvalidInput(t *testing.T) {
 			name: "invalid branch metacharacter",
 			body: `{"agent":"shell","branch":"main;rm -rf"}`,
 		},
+		{
+			name: "unknown but well-formed agent",
+			body: `{"agent":"custom_unknown"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -85,6 +89,36 @@ func TestCreateSessionRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 			}
 		})
+	}
+}
+
+func TestRejectsNonJSONContentType(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/sessions", strings.NewReader(`{"agent":"shell"}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(got["error"], "content-type") {
+		t.Fatalf("error = %q, want contains %q", got["error"], "content-type")
 	}
 }
 

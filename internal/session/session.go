@@ -40,8 +40,16 @@ var (
 	validAgentName     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	validWorkspaceName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	scpLikeRepoURL     = regexp.MustCompile(`^git@[A-Za-z0-9._-]+:[A-Za-z0-9._~/\-]+(\.git)?$`)
-	invalidBranchChars = regexp.MustCompile(`[;&|` + "`" + `$><!(){}\[\]\\\s]`)
+	validBranchPattern = regexp.MustCompile(`^[A-Za-z0-9._/+~-]+$`)
 	validImageRefChars = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@:-]*$`)
+	validEnvKey        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
+
+const (
+	maxEnvVars         = 128
+	maxEnvKeyLength    = 128
+	maxEnvValueLength  = 4096
+	maxBranchNameBytes = 255
 )
 
 // Validate checks whether a session request is safe and well-formed.
@@ -71,6 +79,9 @@ func (s SessionSpec) Validate() error {
 	if s.WorkspaceID != "" && !validWorkspaceName.MatchString(s.WorkspaceID) {
 		return fmt.Errorf("invalid workspace_id %q: must be lowercase alphanumeric, hyphens, underscores", s.WorkspaceID)
 	}
+	if err := validateEnv(s.Env); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -94,6 +105,10 @@ func (s SessionSpec) MarshalJSON() ([]byte, error) {
 
 func validateRepoURL(raw string) error {
 	if scpLikeRepoURL.MatchString(raw) {
+		parts := strings.SplitN(raw, ":", 2)
+		if len(parts) != 2 || hasDotDotPathSegment(parts[1]) {
+			return fmt.Errorf("invalid repo_url %q", raw)
+		}
 		return nil
 	}
 
@@ -111,13 +126,19 @@ func validateRepoURL(raw string) error {
 }
 
 func validateBranchName(branch string) error {
-	if invalidBranchChars.MatchString(branch) {
+	if len(branch) > maxBranchNameBytes {
+		return fmt.Errorf("invalid branch %q", branch)
+	}
+	if !validBranchPattern.MatchString(branch) {
 		return fmt.Errorf("invalid branch %q", branch)
 	}
 	if strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
 		return fmt.Errorf("invalid branch %q", branch)
 	}
-	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") {
+	if strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") {
+		return fmt.Errorf("invalid branch %q", branch)
+	}
+	if strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, ".lock") {
 		return fmt.Errorf("invalid branch %q", branch)
 	}
 	return nil
@@ -142,6 +163,36 @@ func isValidDockerReference(ref string) bool {
 		}
 	}
 	return true
+}
+
+func hasDotDotPathSegment(path string) bool {
+	for _, p := range strings.Split(path, "/") {
+		if p == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func validateEnv(env map[string]string) error {
+	if len(env) > maxEnvVars {
+		return fmt.Errorf("too many env vars: max %d", maxEnvVars)
+	}
+	for k, v := range env {
+		if len(k) == 0 || len(k) > maxEnvKeyLength || !validEnvKey.MatchString(k) {
+			return fmt.Errorf("invalid env key %q", k)
+		}
+		if strings.ContainsAny(k, "=\r\n") {
+			return fmt.Errorf("invalid env key %q", k)
+		}
+		if len(v) > maxEnvValueLength {
+			return fmt.Errorf("env value too long for key %q", k)
+		}
+		if strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("invalid env value for key %q", k)
+		}
+	}
+	return nil
 }
 
 // Session is the runtime state — what actually exists.

@@ -79,6 +79,7 @@ func Warn(msg string, args ...any)  { getLogger().Warn(msg, args...) }
 func Error(msg string, args ...any) { getLogger().Error(msg, args...) }
 
 // Compatibility helpers for incremental migration from stdlib log.
+// Fatal/Fatalf intentionally call os.Exit(1), which skips deferred cleanup.
 func Print(v ...any)                 { Info(fmt.Sprint(v...)) }
 func Println(v ...any)               { Info(strings.TrimSuffix(fmt.Sprintln(v...), "\n")) }
 func Printf(format string, v ...any) { Info(fmt.Sprintf(format, v...)) }
