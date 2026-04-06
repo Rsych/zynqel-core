@@ -46,6 +46,7 @@ function WorkspaceDetail() {
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const terminalRef = useRef<TerminalViewHandle>(null);
 
   useEffect(() => {
@@ -53,21 +54,36 @@ function WorkspaceDetail() {
       setLoading(false);
       return;
     }
+
+    let active = true;
+
     api
       .getSession(id)
-      .then(setSession)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .then((s) => {
+        if (active) setSession(s);
+      })
+      .catch(() => {
+        // Session may have been deleted in another tab/process.
+        if (active) setSession(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     // Poll session status to detect stop/error from outside (agent exit, timeout).
     const POLL_INTERVAL = 5000;
     const interval = setInterval(() => {
+      if (deleting) return;
       api.getSession(id).then(setSession).catch((err) => {
-        console.error("Failed to poll session:", err);
+        // 404 after delete/restart is expected; avoid noisy dev-console errors.
+        if (active) setSession(null);
       });
     }, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [id]);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [id, deleting]);
 
   useEffect(() => {
     const name = session?.spec.workspace_id || session?.id?.slice(0, 8);
@@ -104,12 +120,14 @@ function WorkspaceDetail() {
 
   const handleDelete = async () => {
     if (!id) return;
+    setDeleting(true);
     toast.loading("Removing workspace...", { id: "delete" });
     try {
       await api.deleteSession(id);
       toast.success("Workspace removed", { id: "delete" });
       router.push("/");
     } catch (err) {
+      setDeleting(false);
       toast.error("Failed to remove workspace", { id: "delete" });
     }
   };
