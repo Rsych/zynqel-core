@@ -92,6 +92,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	sendWSJSON(conn, &wsMu, "session.state", string(sess.Status))
 
 	// Send buffered replay (reconnect support).
+	replay = alignReplayToLineStart(replay)
 	if len(replay) > 0 {
 		encoded := base64.StdEncoding.EncodeToString(replay)
 		sendWSJSON(conn, &wsMu, "pty.output", encoded)
@@ -201,6 +202,29 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 			log.Printf("unknown message type: %s", msg.Type)
 		}
 	}
+}
+
+// alignReplayToLineStart trims leading bytes up to the first line boundary when
+// replay begins mid-line (common with ring-buffer reconnect replay). This avoids
+// rendering partial ANSI/OSC escape fragments as visible text after refresh.
+func alignReplayToLineStart(replay []byte) []byte {
+	if len(replay) == 0 {
+		return replay
+	}
+	if replay[0] == '\n' || replay[0] == '\r' {
+		return replay
+	}
+
+	for i, b := range replay {
+		if b == '\n' || b == '\r' {
+			if i+1 >= len(replay) {
+				return nil
+			}
+			return replay[i+1:]
+		}
+	}
+	// No full line boundary in buffer: skip replay to avoid leaking fragments.
+	return nil
 }
 
 // sendWSJSON sends a typed JSON message over the WebSocket connection.
