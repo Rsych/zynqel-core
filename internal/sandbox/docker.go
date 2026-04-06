@@ -376,6 +376,27 @@ func (d *DockerSandbox) ListVolumes(ctx context.Context, prefix string) ([]Volum
 
 // RemoveVolume removes a Docker volume by name.
 func (d *DockerSandbox) RemoveVolume(ctx context.Context, name string) error {
+	// Best-effort cleanup: remove any zynqel-managed containers still attached
+	// to this workspace volume (including exited containers), then remove volume.
+	containers, err := d.cli.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.Arg("volume", name),
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("list containers using volume %s: %w", name, err)
+	}
+
+	for _, c := range containers {
+		if c.Labels[LabelManaged] != "true" {
+			return fmt.Errorf("volume %s is in use by non-zynqel container %s", name, shortid.Format(c.ID))
+		}
+		if err := d.cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil {
+			return fmt.Errorf("remove container %s using volume %s: %w", shortid.Format(c.ID), name, err)
+		}
+	}
+
 	return d.cli.VolumeRemove(ctx, name, true)
 }
 
