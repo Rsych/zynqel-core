@@ -32,7 +32,34 @@ func mustSandbox(t *testing.T) *sandbox.DockerSandbox {
 	if err != nil {
 		t.Fatalf("NewDockerSandbox: %v", err)
 	}
-	t.Cleanup(func() { _ = sb.Close() })
+
+	// Snapshot existing workspace volumes so we can remove only volumes created
+	// by this test run, avoiding leakage into local dev state.
+	before := map[string]struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	vols, err := sb.ListVolumes(ctx, volumePrefix)
+	cancel()
+	if err == nil {
+		for _, v := range vols {
+			before[v.Name] = struct{}{}
+		}
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cleanupCancel()
+		after, err := sb.ListVolumes(cleanupCtx, volumePrefix)
+		if err == nil {
+			for _, v := range after {
+				if _, existed := before[v.Name]; existed {
+					continue
+				}
+				_ = sb.RemoveVolume(cleanupCtx, v.Name)
+			}
+		}
+		_ = sb.Close()
+	})
+
 	return sb
 }
 
