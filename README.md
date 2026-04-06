@@ -112,8 +112,10 @@ curl -X POST http://localhost:8080/sessions \
 
 ```
 zynqel-base     Node.js, git, python3, vim, ripgrep, build tools
-├── zynqel-claude   + Claude Code CLI
-└── zynqel-qwen     + Qwen Code CLI
+├── zynqel-claude    + Claude Code CLI
+├── zynqel-opencode  + OpenCode CLI
+├── zynqel-codex     + Codex CLI
+└── zynqel-qwen      + Qwen Code CLI
 ```
 
 Build all: `make images`

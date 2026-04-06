@@ -54,6 +54,8 @@ func TestStoreValidation(t *testing.T) {
 		{Name: "BadName", Command: []string{"run"}},
 		{Name: "claude", Command: []string{"run"}},
 		{Name: "shell", Command: []string{"run"}},
+		{Name: "opencode", Command: []string{"run"}},
+		{Name: "codex", Command: []string{"run"}},
 		{Name: "custom", Command: nil},
 	}
 	for _, tc := range tests {

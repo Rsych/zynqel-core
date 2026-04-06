@@ -285,7 +285,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 
 func isKnownAgent(name string, store interface{ IsCustom(string) bool }) bool {
 	switch name {
-	case "shell", "claude":
+	case "shell", "claude", "opencode", "codex":
 		return true
 	default:
 		return store != nil && store.IsCustom(name)

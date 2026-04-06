@@ -45,6 +45,11 @@ RUN pip install aider-chat`,
 RUN npm install -g @openai/codex`,
     command: "codex",
   },
+  opencode: {
+    dockerfile: `FROM zynqel-base:latest
+RUN npm install -g opencode-ai`,
+    command: "opencode",
+  },
   qwen: {
     dockerfile: `FROM zynqel-base:latest
 RUN npm install -g @qwen-code/qwen-code@latest`,

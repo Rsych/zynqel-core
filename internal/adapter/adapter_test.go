@@ -87,6 +87,8 @@ func TestNew(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "claude", agent: "claude"},
+		{name: "opencode", agent: "opencode"},
+		{name: "codex", agent: "codex"},
 		{name: "shell", agent: "shell", wantNil: true},
 		{name: "empty", agent: "", wantNil: true},
 		{name: "custom", agent: "custom"},

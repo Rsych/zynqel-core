@@ -16,8 +16,10 @@ var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // builtinNames are reserved and cannot be used for custom agents.
 var builtinNames = map[string]struct{}{
-	"claude": {},
-	"shell":  {},
+	"claude":   {},
+	"shell":    {},
+	"opencode": {},
+	"codex":    {},
 }
 
 // AgentConfig defines a custom agent that can be run in a container.

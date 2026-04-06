@@ -23,6 +23,8 @@ func (s *Server) handleListAgents(w http.ResponseWriter, _ *http.Request) {
 	agents := []agentInfo{
 		{Name: "shell", Builtin: true},
 		{Name: "claude", Builtin: true, Image: "zynqel-claude:latest"},
+		{Name: "opencode", Builtin: true, Image: "zynqel-opencode:latest"},
+		{Name: "codex", Builtin: true, Image: "zynqel-codex:latest"},
 	}
 
 	for _, cfg := range s.agents.List() {

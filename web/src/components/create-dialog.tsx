@@ -157,6 +157,8 @@ export function CreateDialog({ open, onOpenChange }: CreateDialogProps) {
                     <>
                       <SelectItem value="shell">Shell</SelectItem>
                       <SelectItem value="claude">Claude</SelectItem>
+                      <SelectItem value="opencode">OpenCode</SelectItem>
+                      <SelectItem value="codex">Codex</SelectItem>
                     </>
                   )}
                 </SelectGroup>
