@@ -182,9 +182,6 @@ func validateEnv(env map[string]string) error {
 		if len(k) == 0 || len(k) > maxEnvKeyLength || !validEnvKey.MatchString(k) {
 			return fmt.Errorf("invalid env key %q", k)
 		}
-		if strings.ContainsAny(k, "=\r\n") {
-			return fmt.Errorf("invalid env key %q", k)
-		}
 		if len(v) > maxEnvValueLength {
 			return fmt.Errorf("env value too long for key %q", k)
 		}

@@ -29,15 +29,12 @@ func RequestID(next http.Handler) http.Handler {
 
 func RequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
 		metrics := httpsnoop.CaptureMetrics(next, w, r)
-
-		duration := time.Since(start)
 		logger.FromContext(r.Context()).Info("http request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", metrics.Code,
-			"duration_ms", duration.Milliseconds(),
+			"duration_ms", metrics.Duration.Milliseconds(),
 		)
 	})
 }

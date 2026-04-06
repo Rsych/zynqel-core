@@ -19,11 +19,12 @@ var (
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) error {
 	contentType := strings.TrimSpace(r.Header.Get("Content-Type"))
-	if contentType != "" {
-		mediaType, _, err := mime.ParseMediaType(contentType)
-		if err != nil || mediaType != "application/json" {
-			return errUnsupportedContentType
-		}
+	if contentType == "" {
+		return errUnsupportedContentType
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType != "application/json" {
+		return errUnsupportedContentType
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
