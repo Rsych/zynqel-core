@@ -2,7 +2,7 @@ package adapter
 
 import (
 	"context"
-	"log"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"sync"
 
 	"github.com/Rsych/zynqel-core/internal/agentcfg"

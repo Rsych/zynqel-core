@@ -3,7 +3,7 @@ package adapter
 import (
 	"context"
 	"fmt"
-	"log"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"strings"
 	"time"
 

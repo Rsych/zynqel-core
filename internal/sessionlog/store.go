@@ -3,8 +3,8 @@ package sessionlog
 import (
 	"encoding/json"
 	"fmt"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"

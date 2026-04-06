@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"io"
-	"log"
 
 	"github.com/Rsych/zynqel-core/internal/shortid"
 	"github.com/containerd/errdefs"

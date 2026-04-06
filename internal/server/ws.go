@@ -3,7 +3,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
-	"log"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"net/http"
 	"sync"
 
@@ -62,6 +62,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close() }()
+	conn.SetReadLimit(32 << 10) // 32KB per incoming frame/message
 
 	// Subscribe to the session's output broadcaster.
 	replay, sub, err := s.sessions.Subscribe(id)

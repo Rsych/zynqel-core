@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +23,8 @@ import (
 )
 
 func main() {
+	log.Init(os.Getenv("ZYNQEL_LOG_FORMAT"), os.Getenv("ZYNQEL_LOG_LEVEL"))
+
 	port := os.Getenv("ZYNQEL_PORT")
 	if port == "" {
 		port = "8080"
@@ -96,8 +98,13 @@ func main() {
 	srv := server.New(sm, agentStore, sb, logStore, webFS)
 
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%s", port),
-		Handler: srv,
+		Addr:              fmt.Sprintf(":%s", port),
+		Handler:           srv,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
 	}
 
 	// Start idle session checker.

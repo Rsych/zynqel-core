@@ -2,8 +2,8 @@ package pty
 
 import (
 	"context"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"io"
-	"log"
 	"sync"
 	"sync/atomic"
 
