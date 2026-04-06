@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, isAPIError } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { toast } from "sonner";
 import { TerminalView, type TerminalViewHandle } from "@/components/terminal-view";
@@ -72,6 +72,8 @@ function WorkspaceDetail() {
       });
 
     // Poll session status to detect stop/error from outside (agent exit, timeout).
+    // Intentionally read deletingRef.current in the interval callback so we don't
+    // need to recreate the timer when deleting state changes.
     const POLL_INTERVAL = 5000;
     const interval = setInterval(() => {
       if (deletingRef.current) return;
@@ -82,8 +84,7 @@ function WorkspaceDetail() {
         })
         .catch((err: unknown) => {
           // 404 after delete/restart is expected; avoid noisy dev-console errors.
-          const message = err instanceof Error ? err.message : String(err);
-          if (message !== "session not found") {
+          if (!isAPIError(err) || err.status !== 404) {
             console.warn("Failed to poll session:", err);
           }
           if (active) setSession(null);
@@ -138,6 +139,12 @@ function WorkspaceDetail() {
       toast.success("Workspace removed", { id: "delete" });
       router.push("/");
     } catch (err) {
+      try {
+        const refreshed = await api.getSession(id);
+        setSession(refreshed);
+      } catch {
+        // Keep current fallback behavior if refetch fails.
+      }
       toast.error("Failed to remove workspace", { id: "delete" });
     } finally {
       setDeleting(false);

@@ -16,6 +16,20 @@ const API_BASE =
     ? "http://localhost:8080"
     : "");
 
+export class APIError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+  }
+}
+
+export function isAPIError(err: unknown): err is APIError {
+  return err instanceof APIError;
+}
+
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -26,7 +40,7 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    throw new APIError(res.status, body.error || `HTTP ${res.status}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
