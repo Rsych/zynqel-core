@@ -13,6 +13,8 @@ interface QuickLaunchProps {
 
 const agentCommands: Record<string, { cmd: string; label: string }> = {
   claude: { cmd: "claude", label: "Claude Code" },
+  opencode: { cmd: "opencode", label: "OpenCode" },
+  codex: { cmd: "codex", label: "Codex CLI" },
   qwen: { cmd: "qwen", label: "Qwen Code" },
 };
 

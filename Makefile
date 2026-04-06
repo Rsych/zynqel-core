@@ -36,6 +36,8 @@ lint:
 images:
 	docker build -t zynqel-base:latest images/base/
 	docker build -t zynqel-claude:latest images/claude/
+	docker build -t zynqel-opencode:latest images/opencode/
+	docker build -t zynqel-codex:latest images/codex/
 	docker build -t zynqel-qwen:latest images/qwen/
 
 # --- Web dashboard ---

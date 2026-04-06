@@ -3,9 +3,10 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
-	"log"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/Rsych/zynqel-core/internal/session"
 	"github.com/gorilla/websocket"
@@ -19,6 +20,12 @@ var upgrader = websocket.Upgrader{
 		return true
 	},
 }
+
+const (
+	wsReadTimeout  = 70 * time.Second
+	wsPingInterval = 30 * time.Second
+	wsWriteTimeout = 10 * time.Second
+)
 
 // wsMessage is the envelope for all WebSocket messages.
 //
@@ -62,6 +69,11 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close() }()
+	conn.SetReadLimit(32 << 10) // 32KB per incoming frame/message
+	_ = conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	})
 
 	// Subscribe to the session's output broadcaster.
 	replay, sub, err := s.sessions.Subscribe(id)
@@ -73,6 +85,8 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	defer s.sessions.Unsubscribe(id, sub)
 
 	var wsMu sync.Mutex
+	done := make(chan struct{})
+	defer close(done)
 
 	// Send current session state.
 	sendWSJSON(conn, &wsMu, "session.state", string(sess.Status))
@@ -98,6 +112,27 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 	}()
 
+	// Keepalive ping loop so read deadline and pong handler are meaningful.
+	go func() {
+		ticker := time.NewTicker(wsPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				wsMu.Lock()
+				_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+				err := conn.WriteMessage(websocket.PingMessage, nil)
+				_ = conn.SetWriteDeadline(time.Time{})
+				wsMu.Unlock()
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+
 	// Intercept events: detected CLI prompts.
 	go func() {
 		for prompt := range sub.Events {
@@ -107,6 +142,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 
 	// Input loop: WebSocket → PTY.
 	for {
+		_ = conn.SetReadDeadline(time.Now().Add(wsReadTimeout))
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {

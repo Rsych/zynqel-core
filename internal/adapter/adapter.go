@@ -30,6 +30,18 @@ func New(agent string, sb sandbox.Sandbox, store *agentcfg.Store) (AgentAdapter,
 	switch agent {
 	case "claude":
 		return NewClaudeAdapter(sb), nil
+	case "opencode":
+		return NewGenericAdapter(sb, agentcfg.AgentConfig{
+			Name:    "opencode",
+			Command: []string{"opencode"},
+			Image:   "zynqel-opencode:latest",
+		}), nil
+	case "codex":
+		return NewGenericAdapter(sb, agentcfg.AgentConfig{
+			Name:    "codex",
+			Command: []string{"codex"},
+			Image:   "zynqel-codex:latest",
+		}), nil
 	case "shell", "":
 		return nil, nil
 	default:

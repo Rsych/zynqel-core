@@ -1,9 +1,8 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"net/http"
 
 	"github.com/Rsych/zynqel-core/internal/agentcfg"
@@ -24,6 +23,8 @@ func (s *Server) handleListAgents(w http.ResponseWriter, _ *http.Request) {
 	agents := []agentInfo{
 		{Name: "shell", Builtin: true},
 		{Name: "claude", Builtin: true, Image: "zynqel-claude:latest"},
+		{Name: "opencode", Builtin: true, Image: "zynqel-opencode:latest"},
+		{Name: "codex", Builtin: true, Image: "zynqel-codex:latest"},
 	}
 
 	for _, cfg := range s.agents.List() {
@@ -44,8 +45,8 @@ func (s *Server) handleListAgents(w http.ResponseWriter, _ *http.Request) {
 // If a Dockerfile is provided, builds the image automatically.
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	var cfg agentcfg.AgentConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSONBody(w, r, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -75,8 +76,8 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	var cfg agentcfg.AgentConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSONBody(w, r, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	cfg.Name = name

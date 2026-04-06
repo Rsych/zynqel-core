@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, isAPIError } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { toast } from "sonner";
 import { TerminalView, type TerminalViewHandle } from "@/components/terminal-view";
@@ -46,27 +46,62 @@ function WorkspaceDetail() {
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const terminalRef = useRef<TerminalViewHandle>(null);
+  const deletingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!id) {
       setLoading(false);
       return;
     }
+
+    let active = true;
+
     api
       .getSession(id)
-      .then(setSession)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .then((s) => {
+        if (active) setSession(s);
+      })
+      .catch(() => {
+        // Session may have been deleted in another tab/process.
+        if (active) setSession(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     // Poll session status to detect stop/error from outside (agent exit, timeout).
+    // Intentionally read deletingRef.current in the interval callback so we don't
+    // need to recreate the timer when deleting state changes.
     const POLL_INTERVAL = 5000;
     const interval = setInterval(() => {
-      api.getSession(id).then(setSession).catch((err) => {
-        console.error("Failed to poll session:", err);
-      });
+      if (deletingRef.current) return;
+      api
+        .getSession(id)
+        .then((s) => {
+          if (active) setSession(s);
+        })
+        .catch((err: unknown) => {
+          // 404 after delete/restart is expected; avoid noisy dev-console errors.
+          if (isAPIError(err) && err.status === 404) {
+            if (active) setSession(null);
+            return;
+          }
+          console.warn("Failed to poll session:", err);
+        });
     }, POLL_INTERVAL);
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [id]);
 
   useEffect(() => {
@@ -104,13 +139,26 @@ function WorkspaceDetail() {
 
   const handleDelete = async () => {
     if (!id) return;
+    setDeleting(true);
+    deletingRef.current = true;
     toast.loading("Removing workspace...", { id: "delete" });
     try {
       await api.deleteSession(id);
       toast.success("Workspace removed", { id: "delete" });
       router.push("/");
     } catch (err) {
+      try {
+        const refreshed = await api.getSession(id);
+        setSession(refreshed);
+      } catch {
+        // Keep current fallback behavior if refetch fails.
+      }
       toast.error("Failed to remove workspace", { id: "delete" });
+    } finally {
+      if (mountedRef.current) {
+        setDeleting(false);
+        deletingRef.current = false;
+      }
     }
   };
 
@@ -329,6 +377,7 @@ function WorkspaceDetail() {
         title="Remove workspace?"
         description="This will stop the session and remove the container. Workspace data on the volume is preserved, but the container and any uncommitted state will be lost."
         confirmLabel="Remove"
+        confirmDisabled={deleting}
         variant="destructive"
         onConfirm={handleDelete}
       />

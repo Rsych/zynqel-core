@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -18,13 +18,17 @@ import (
 // and creates a new session. Returns 201 Created with the session.
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var spec session.SessionSpec
-	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSONBody(w, r, &spec); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if spec.Agent == "" {
-		writeError(w, http.StatusBadRequest, "agent is required")
+	if err := spec.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !isKnownAgent(spec.Agent, s.agents) {
+		writeError(w, http.StatusBadRequest, "unsupported agent")
 		return
 	}
 
@@ -135,8 +139,8 @@ func (s *Server) handleRenameWorkspace(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSONBody(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.ID == "" {
@@ -277,4 +281,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // writeError sends a JSON error response.
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func isKnownAgent(name string, store interface{ IsCustom(string) bool }) bool {
+	switch name {
+	case "shell", "claude", "opencode", "codex":
+		return true
+	default:
+		return store != nil && store.IsCustom(name)
+	}
 }

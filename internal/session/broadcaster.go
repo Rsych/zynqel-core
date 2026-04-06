@@ -2,8 +2,8 @@ package session
 
 import (
 	"errors"
+	log "github.com/Rsych/zynqel-core/internal/logger"
 	"io"
-	"log"
 	"net"
 	"sync"
 

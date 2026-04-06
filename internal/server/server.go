@@ -13,6 +13,7 @@ import (
 
 type Server struct {
 	router   *http.ServeMux
+	handler  http.Handler
 	sessions *session.Manager
 	agents   *agentcfg.Store
 	sandbox  sandbox.Sandbox
@@ -30,6 +31,7 @@ func New(sm *session.Manager, agents *agentcfg.Store, sb sandbox.Sandbox, logSto
 		logStore: logStore,
 	}
 	s.routes(webFS)
+	s.handler = RequestID(RequestLog(s.router))
 	return s
 }
 
@@ -87,7 +89,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	s.router.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

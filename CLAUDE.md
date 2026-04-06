@@ -43,6 +43,8 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3
 
 ```bash
 docker build -t zynqel-claude:latest images/claude/     # Build Claude agent image
+docker build -t zynqel-opencode:latest images/opencode/ # Build OpenCode agent image
+docker build -t zynqel-codex:latest images/codex/       # Build Codex agent image
 ```
 
 ## Workflow Rules
@@ -137,7 +139,7 @@ type AgentAdapter interface {
 ## API Surface
 
 - `GET /health` — health check
-- `POST /sessions` — create session (`{"agent": "claude|shell", "repo_url": "...", "branch": "..."}`)
+- `POST /sessions` — create session (`{"agent": "claude|opencode|codex|shell", "repo_url": "...", "branch": "..."}`)
 - `GET /sessions` — list sessions
 - `GET /sessions/:id` — session details
 - `DELETE /sessions/:id` — kill session (graceful SIGTERM → SIGKILL)

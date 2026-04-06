@@ -17,6 +17,7 @@ interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel?: string;
+  confirmDisabled?: boolean;
   variant?: "default" | "destructive";
   onConfirm: () => void;
 }
@@ -27,6 +28,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Confirm",
+  confirmDisabled = false,
   variant = "default",
   onConfirm,
 }: ConfirmDialogProps) {
@@ -41,6 +43,7 @@ export function ConfirmDialog({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
+            disabled={confirmDisabled}
             className={
               variant === "destructive"
                 ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
